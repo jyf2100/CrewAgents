@@ -338,9 +338,484 @@ def create_app() -> web.Application:
     return app
 
 
+WIZARD_HTML = r"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hermes Setup Wizard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+*:focus-visible{outline:2px solid #FFB800;outline-offset:2px}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0F172A;color:#e0e0e0;
+  display:flex;justify-content:center;align-items:flex-start;min-height:100vh;padding:32px 16px}
+.card{background:#1E293B;border-radius:16px;padding:32px;max-width:480px;width:100%}
+h1{color:#FFB800;font-size:24px;margin-bottom:4px;text-align:center}
+.step-indicator{color:#64748B;font-size:14px;text-align:center;margin-bottom:24px}
+.step{display:none}
+.step.active{display:block}
+label{display:block;color:#94A3B8;font-size:13px;margin-bottom:4px;margin-top:16px}
+label:first-child{margin-top:0}
+input,select{width:100%;padding:12px 16px;border-radius:12px;border:1px solid #334155;
+  background:#0F172A;color:#e0e0e0;font-size:15px;min-height:48px;appearance:none;-webkit-appearance:none}
+select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 16px center;padding-right:40px}
+input::placeholder{color:#475569}
+.btn-row{display:flex;gap:12px;margin-top:24px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:14px 24px;
+  border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;border:none;min-height:48px;
+  transition:background .15s}
+.btn-primary{background:#FFB800;color:#0F172A;flex:1}
+.btn-primary:hover{background:#E5A700}
+.btn-secondary{background:#334155;color:#e0e0e0;border:1px solid #475569}
+.btn-secondary:hover{background:#3D4F63}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.get-key-link{display:inline-block;margin-top:6px;color:#FFB800;font-size:13px;text-decoration:none}
+.get-key-link:hover{text-decoration:underline}
+.status-box{padding:12px 16px;border-radius:10px;font-size:14px;margin-top:12px;display:none;align-items:center;gap:8px}
+.status-box svg{flex-shrink:0}
+.status-waiting{display:flex;background:#0F3460;color:#60A5FA}
+.status-success{display:flex;background:#1e4d2b;color:#4ADE80}
+.status-error{display:flex;background:#4a1c1c;color:#F87171}
+.status-timeout{display:flex;background:#4a3c1c;color:#FBBF24}
+.platform-cards{display:flex;flex-direction:column;gap:12px;margin-top:16px}
+.platform-card{background:#0F172A;border:2px solid #334155;border-radius:12px;padding:20px;
+  cursor:pointer;transition:border-color .15s,background .15s}
+.platform-card:hover{border-color:#475569;background:#131D33}
+.platform-card.selected{border-color:#FFB800;background:#1a2332}
+.platform-card h3{font-size:16px;margin-bottom:4px}
+.platform-card p{font-size:13px;color:#94A3B8}
+.platform-detail{display:none;margin-top:16px}
+.platform-detail.active{display:block}
+.platform-note{color:#64748B;font-size:12px;margin-top:8px}
+.qr-area{margin-top:16px;text-align:center}
+.qr-area img{max-width:200px;border-radius:8px;border:1px solid #334155}
+.qr-status{margin-top:8px;font-size:14px}
+.summary{margin-top:16px}
+.summary-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #334155;font-size:14px}
+.summary-label{color:#94A3B8}
+.spinner{display:inline-block;width:20px;height:20px;border:3px solid #334155;
+  border-top-color:#FFB800;border-radius:50%;animation:spin .8s linear infinite;margin-right:8px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
+.complete-actions{margin-top:24px;text-align:center}
+.restart-status{font-size:14px;color:#94A3B8;margin-top:12px}
+.proxy-row{display:none}
+.proxy-row.visible{display:block}
+.custom-url-row{display:none}
+.custom-url-row.visible{display:block}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Hermes Setup Wizard</h1>
+  <p class="step-indicator" id="stepIndicator">Step 1 of 3</p>
+
+  <!-- Step 1: AI Model -->
+  <div class="step active" id="step1" role="region" aria-label="AI Model Configuration">
+    <label for="provider">AI Provider</label>
+    <select id="provider">
+      <option value="minimax-cn">MiniMax (中国) — 推荐中国用户使用</option>
+      <option value="openrouter">OpenRouter — Access to 100+ models</option>
+      <option value="gemini">Google AI Studio — Gemini models via Google</option>
+      <option value="custom">Custom — Any OpenAI-compatible endpoint</option>
+    </select>
+
+    <label for="apiKey">API Key</label>
+    <input type="password" id="apiKey" placeholder="Enter your API key" autocomplete="off">
+    <a id="get-key-link" class="get-key-link" href="#" target="_blank" rel="noopener">Get Key →</a>
+
+    <div class="custom-url-row" id="customUrlRow">
+      <label for="baseUrl">Base URL</label>
+      <input type="url" id="baseUrl" placeholder="https://api.example.com/v1">
+    </div>
+
+    <label for="model">Model</label>
+    <select id="model">
+      <option value="">Select a model</option>
+    </select>
+    <div class="custom-url-row visible" id="customModelRow" style="display:none">
+      <label for="customModel">Custom Model Name</label>
+      <input type="text" id="customModel" placeholder="e.g. gpt-4o">
+    </div>
+
+    <div class="proxy-row" id="proxyRow">
+      <label for="proxy">HTTP Proxy</label>
+      <input type="text" id="proxy" placeholder="http://127.0.0.1:7890">
+    </div>
+
+    <div class="status-box" id="testResult" role="status" aria-live="polite"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="goStep(0)" disabled aria-label="Go back">← Back</button>
+      <button class="btn btn-primary" id="testBtn" onclick="testConnection()" aria-label="Test Connection">
+        Test Connection
+      </button>
+      <button class="btn btn-primary" id="next1" onclick="goStep(2)" disabled aria-label="Next step">Next →</button>
+    </div>
+  </div>
+
+  <!-- Step 2: Messaging Platforms -->
+  <div class="step" id="step2" role="region" aria-label="Messaging Platform Setup">
+    <div class="platform-cards">
+      <div class="platform-card" id="wechatCard" onclick="selectPlatform('wechat')" tabindex="0" role="button" aria-label="Connect WeChat">
+        <h3>WeChat</h3>
+        <p>Scan QR code to connect your WeChat account</p>
+      </div>
+      <div class="platform-card" id="telegramCard" onclick="selectPlatform('telegram')" tabindex="0" role="button" aria-label="Connect Telegram">
+        <h3>Telegram</h3>
+        <p>Connect via BotFather token</p>
+      </div>
+      <div class="platform-card" id="skipCard" onclick="selectPlatform('skip')" tabindex="0" role="button" aria-label="Skip messaging setup">
+        <h3>Skip</h3>
+        <p>Configure messaging later</p>
+      </div>
+    </div>
+
+    <!-- WeChat detail -->
+    <div class="platform-detail" id="wechatDetail" role="region" aria-label="WeChat QR Code">
+      <p class="platform-note">WeChat 扫码需从另一台设备（手机）操作</p>
+      <div class="qr-area" id="qrArea">
+        <div class="qr-status" id="qrStatus" role="status" aria-live="polite">Click to start</div>
+      </div>
+    </div>
+
+    <!-- Telegram detail -->
+    <div class="platform-detail" id="telegramDetail" role="region" aria-label="Telegram Configuration">
+      <label for="telegramToken">Bot Token</label>
+      <input type="text" id="telegramToken" placeholder="123456:ABC-DEF..." autocomplete="off">
+      <a class="get-key-link" href="https://t.me/BotFather" target="_blank" rel="noopener">Get Token →</a>
+      <button class="btn btn-primary" style="margin-top:12px;width:100%" onclick="saveTelegram()" aria-label="Save Telegram token">
+        Save Telegram Token
+      </button>
+      <div class="status-box" id="telegramResult" role="status" aria-live="polite"></div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="goStep(1)" aria-label="Go back">← Back</button>
+      <button class="btn btn-primary" onclick="goStep(3)" aria-label="Next step">Next →</button>
+    </div>
+  </div>
+
+  <!-- Step 3: Complete -->
+  <div class="step" id="step3" role="region" aria-label="Setup Complete">
+    <h2 style="color:#FFB800;font-size:20px;margin-bottom:16px;text-align:center">Setup Complete</h2>
+    <div class="summary" id="summary" role="region" aria-label="Configuration summary">
+    </div>
+
+    <div class="complete-actions">
+      <button class="btn btn-primary" id="restartBtn" onclick="restartGateway()" style="width:100%" aria-label="Restart gateway">
+        Restarting gateway...
+      </button>
+      <p class="restart-status" id="restartStatus" role="status" aria-live="polite">
+        <span class="spinner"></span>Restarting gateway...
+      </p>
+      <a id="startChatBtn" class="btn btn-primary" href="http://localhost:3001" style="width:100%;display:none;text-decoration:none;margin-top:12px" aria-label="Start chatting">
+        Start Chat →
+      </a>
+    </div>
+    <p class="platform-note" style="margin-top:16px;text-align:center">Bookmark this page to change settings: localhost:8643/setup</p>
+  </div>
+</div>
+
+<script>
+const API_KEY = "__API_KEY__";
+let currentStep = 1;
+let setupStatus = {};
+let selectedPlatform = "";
+let wechatPollTimer = null;
+
+function authHeaders() {
+  return { "Content-Type": "application/json", "Authorization": "Bearer " + API_KEY };
+}
+
+async function fetchStatus() {
+  const resp = await fetch("/setup/status");
+  setupStatus = await resp.json();
+  return setupStatus;
+}
+
+function showStep(n) {
+  document.querySelectorAll(".step").forEach((el, i) => {
+    el.classList.toggle("active", i + 1 === n);
+  });
+  document.getElementById("stepIndicator").textContent = "Step " + n + " of 3";
+  currentStep = n;
+}
+
+function goStep(n) {
+  if (n === 3) buildSummary();
+  showStep(n);
+  if (n === 3) restartGateway();
+}
+
+// --- Step 1: Provider logic ---
+function updateProviderUI() {
+  const provider = document.getElementById("provider").value;
+  const p = setupStatus.providers ? setupStatus.providers[provider] : null;
+  const keyLink = document.getElementById("get-key-link");
+  const proxyRow = document.getElementById("proxyRow");
+  const customUrlRow = document.getElementById("customUrlRow");
+  const modelSelect = document.getElementById("model");
+  const customModelRow = document.getElementById("customModelRow");
+
+  if (p && p.get_key_url) {
+    keyLink.href = p.get_key_url;
+    keyLink.style.display = "inline-block";
+  } else {
+    keyLink.style.display = "none";
+  }
+
+  if (p && p.show_proxy) {
+    proxyRow.classList.add("visible");
+  } else {
+    proxyRow.classList.remove("visible");
+  }
+
+  if (provider === "custom") {
+    customUrlRow.classList.add("visible");
+    modelSelect.style.display = "none";
+    customModelRow.style.display = "block";
+  } else {
+    customUrlRow.classList.remove("visible");
+    modelSelect.style.display = "block";
+    customModelRow.style.display = "none";
+    modelSelect.innerHTML = "";
+    if (p && p.models) {
+      p.models.forEach((m, i) => {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m;
+        modelSelect.appendChild(opt);
+      });
+      if (p.models.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "No models listed";
+        modelSelect.appendChild(opt);
+      }
+    }
+  }
+}
+
+async function testConnection() {
+  const provider = document.getElementById("provider").value;
+  const apiKey = document.getElementById("apiKey").value;
+  const model = document.getElementById("model").value || document.getElementById("customModel").value;
+  const baseUrl = document.getElementById("baseUrl").value;
+  const proxy = document.getElementById("proxy").value;
+  const resultBox = document.getElementById("testResult");
+  const testBtn = document.getElementById("testBtn");
+
+  resultBox.className = "status-box status-waiting";
+  resultBox.innerHTML = '<span class="spinner"></span>Testing connection...';
+  testBtn.disabled = true;
+
+  try {
+    const body = { provider, api_key: apiKey, model };
+    if (baseUrl) body.base_url = baseUrl;
+    if (proxy) body.proxy = proxy;
+
+    const resp = await fetch("/setup/test-conn", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+
+    if (data.ok) {
+      resultBox.className = "status-box status-success";
+      resultBox.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>Connection successful';
+      document.getElementById("next1").disabled = false;
+    } else {
+      resultBox.className = "status-box status-error";
+      resultBox.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F87171" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>' + (data.error || "Connection failed");
+      document.getElementById("next1").disabled = true;
+    }
+  } catch (e) {
+    resultBox.className = "status-box status-error";
+    resultBox.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F87171" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>Network error: ' + e.message;
+    document.getElementById("next1").disabled = true;
+  }
+  testBtn.disabled = false;
+}
+
+// --- Step 2: Platform logic ---
+function selectPlatform(platform) {
+  selectedPlatform = platform;
+  document.querySelectorAll(".platform-card").forEach(c => c.classList.remove("selected"));
+  document.getElementById(platform === "wechat" ? "wechatCard" : platform === "telegram" ? "telegramCard" : "skipCard").classList.add("selected");
+  document.querySelectorAll(".platform-detail").forEach(d => d.classList.remove("active"));
+  if (platform === "wechat") {
+    document.getElementById("wechatDetail").classList.add("active");
+    startWechatQR();
+  } else if (platform === "telegram") {
+    document.getElementById("telegramDetail").classList.add("active");
+  }
+}
+
+async function startWechatQR() {
+  const qrArea = document.getElementById("qrArea");
+  const qrStatus = document.getElementById("qrStatus");
+  qrStatus.innerHTML = '<span class="spinner"></span>Loading QR code...';
+
+  try {
+    const resp = await fetch("/setup/platforms/wechat/qr", { headers: authHeaders() });
+    const data = await resp.json();
+    if (data.qr_url) {
+      qrArea.innerHTML = '<img src="' + data.qr_url + '" alt="WeChat QR Code"><div class="qr-status" id="qrStatus" role="status" aria-live="polite"><span class="spinner"></span>Waiting for scan...</div>';
+      pollWechat();
+    } else {
+      qrStatus.textContent = data.error || "Failed to get QR code";
+    }
+  } catch (e) {
+    qrStatus.textContent = "Error: " + e.message;
+  }
+}
+
+function pollWechat() {
+  if (wechatPollTimer) clearInterval(wechatPollTimer);
+  const qrStatus = document.getElementById("qrStatus");
+  wechatPollTimer = setInterval(async () => {
+    try {
+      const resp = await fetch("/setup/platforms/wechat/poll", { headers: authHeaders() });
+      const data = await resp.json();
+      if (data.status === "scanned") {
+        qrStatus.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60A5FA" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Scanned — confirming...';
+      } else if (data.status === "success") {
+        clearInterval(wechatPollTimer);
+        qrStatus.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>WeChat connected!';
+      } else if (data.status === "expired") {
+        clearInterval(wechatPollTimer);
+        qrStatus.innerHTML = 'QR expired. <a href="#" onclick="startWechatQR();return false;" style="color:#FFB800">Refresh</a>';
+      }
+    } catch (e) {
+      // ignore poll errors
+    }
+  }, 2000);
+}
+
+async function saveTelegram() {
+  const token = document.getElementById("telegramToken").value;
+  const resultBox = document.getElementById("telegramResult");
+  resultBox.className = "status-box status-waiting";
+  resultBox.innerHTML = '<span class="spinner"></span>Saving...';
+
+  try {
+    const resp = await fetch("/setup/platforms/telegram", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ token }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      resultBox.className = "status-box status-success";
+      resultBox.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>Telegram connected!';
+    } else {
+      resultBox.className = "status-box status-error";
+      resultBox.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F87171" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>' + (data.error || "Failed");
+    }
+  } catch (e) {
+    resultBox.className = "status-box status-error";
+    resultBox.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F87171" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>Error: ' + e.message;
+  }
+}
+
+// --- Step 3: Summary & Restart ---
+function buildSummary() {
+  const provider = document.getElementById("provider");
+  const providerText = provider.options[provider.selectedIndex].text;
+  const model = document.getElementById("model").value || document.getElementById("customModel").value || setupStatus.model || "-";
+  const wechatConnected = setupStatus.wechat_connected;
+  const telegramConnected = setupStatus.telegram_connected;
+
+  document.getElementById("summary").innerHTML =
+    '<div class="summary-row"><span class="summary-label">Provider</span><span>' + providerText + '</span></div>' +
+    '<div class="summary-row"><span class="summary-label">Model</span><span>' + model + '</span></div>' +
+    '<div class="summary-row"><span class="summary-label">WeChat</span><span style="color:' + (wechatConnected ? '#4ADE80' : '#94A3B8') + '">' + (wechatConnected ? 'Connected' : 'Not connected') + '</span></div>' +
+    '<div class="summary-row"><span class="summary-label">Telegram</span><span style="color:' + (telegramConnected ? '#4ADE80' : '#94A3B8') + '">' + (telegramConnected ? 'Connected' : 'Not connected') + '</span></div>';
+}
+
+async function restartGateway() {
+  const restartBtn = document.getElementById("restartBtn");
+  const restartStatus = document.getElementById("restartStatus");
+  const startChatBtn = document.getElementById("startChatBtn");
+  restartBtn.disabled = true;
+  restartStatus.innerHTML = '<span class="spinner"></span>Restarting gateway...';
+  startChatBtn.style.display = "none";
+
+  try {
+    await fetch("/setup/restart", { method: "POST", headers: authHeaders() });
+  } catch (e) {
+    // gateway may restart too fast to respond
+  }
+
+  let attempts = 0;
+  const maxAttempts = 15;
+  const poll = setInterval(async () => {
+    attempts++;
+    if (attempts >= maxAttempts) {
+      clearInterval(poll);
+      restartStatus.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>Timeout — try refreshing manually';
+      startChatBtn.style.display = "inline-flex";
+      return;
+    }
+    try {
+      const resp = await fetch("/setup/status");
+      const data = await resp.json();
+      if (data.has_api_key) {
+        clearInterval(poll);
+        restartStatus.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>Gateway is ready!';
+        startChatBtn.style.display = "inline-flex";
+        restartBtn.style.display = "none";
+      }
+    } catch (e) {
+      // gateway still restarting
+    }
+  }, 2000);
+}
+
+// --- Init ---
+window.addEventListener("DOMContentLoaded", async () => {
+  await fetchStatus();
+
+  const provider = document.getElementById("provider");
+  if (setupStatus.active_provider) {
+    provider.value = setupStatus.active_provider;
+  }
+  updateProviderUI();
+
+  if (setupStatus.masked_keys) {
+    const activeKey = setupStatus.masked_keys[provider.value];
+    if (activeKey) document.getElementById("apiKey").placeholder = activeKey;
+  }
+
+  if (setupStatus.model) {
+    const modelSelect = document.getElementById("model");
+    for (let i = 0; i < modelSelect.options.length; i++) {
+      if (modelSelect.options[i].value === setupStatus.model) {
+        modelSelect.selectedIndex = i;
+        break;
+      }
+    }
+  }
+
+  if (setupStatus.proxy) {
+    document.getElementById("proxy").value = setupStatus.proxy;
+  }
+
+  provider.addEventListener("change", updateProviderUI);
+});
+</script>
+</body>
+</html>"""
+
+
 async def handle_wizard(request: web.Request) -> web.Response:
-    """Placeholder — wizard HTML will be added in Task 4."""
-    return web.Response(text="<html><body><h1>Hermes Setup Wizard</h1><p>Wizard coming soon...</p></body></html>", content_type="text/html")
+    """Full 3-step setup wizard SPA."""
+    key = ensure_api_server_key()
+    html = WIZARD_HTML.replace("__API_KEY__", key)
+    return web.Response(text=html, content_type="text/html")
 
 
 async def run_servers():
