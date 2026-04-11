@@ -320,6 +320,7 @@ h1{{color:#FFB800;margin-bottom:4px;font-size:28px}}
   </div>
 </div>
 <script>
+if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister()));
 if (!{"true" if status.get("setup_complete") else "false"}) window.location.href = "http://localhost:8643/setup";
 </script>
 </body></html>"""
