@@ -244,3 +244,95 @@ def get_setup_status() -> dict:
                           "get_key_url": v["get_key_url"], "show_proxy": v["show_proxy"]}
                       for k, v in PROVIDERS.items()},
     }
+
+
+# --- aiohttp server ---
+import asyncio
+
+from aiohttp import web
+
+LANDING_PORT = 3000
+WIZARD_PORT = 8643
+
+
+def landing_page_html(status: dict) -> str:
+    wechat_status = '<span style="color:#2ecc71">Connected</span>' if status["wechat_connected"] else '<span style="color:#888">Not connected</span>'
+    telegram_status = '<span style="color:#2ecc71">Connected</span>' if status["telegram_connected"] else '<span style="color:#888">Not connected</span>'
+    model_display = f'{status["model"]} ({status["provider"]})' if status["model"] else '<span style="color:#888">Not configured</span>'
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hermes Agent</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0F172A;color:#e0e0e0;
+  display:flex;justify-content:center;align-items:center;min-height:100vh}}
+.card{{background:#1E293B;border-radius:16px;padding:48px;text-align:center;max-width:440px;width:90%}}
+h1{{color:#FFB800;margin-bottom:4px;font-size:28px}}
+.version{{color:#64748B;margin-bottom:32px;font-size:14px}}
+.btn-grid{{display:flex;gap:16px;justify-content:center;margin-bottom:32px}}
+.btn{{display:inline-flex;align-items:center;gap:8px;padding:16px 28px;border-radius:12px;
+  font-size:16px;font-weight:600;text-decoration:none;min-height:48px;cursor:pointer;border:none}}
+.btn-chat{{background:#FFB800;color:#0F172A}}
+.btn-chat:hover{{background:#E5A700}}
+.btn-setup{{background:#334155;color:#e0e0e0;border:1px solid #475569}}
+.btn-setup:hover{{background:#3D4F63}}
+.status{{text-align:left;margin-top:16px}}
+.status-row{{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #334155;font-size:14px}}
+.status-label{{color:#94A3B8}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Hermes Agent</h1>
+  <p class="version">v0.8.0</p>
+  <div class="btn-grid">
+    <a href="http://localhost:3001" class="btn btn-chat">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Chat
+    </a>
+    <a href="http://localhost:8643/setup" class="btn btn-setup">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </a>
+  </div>
+  <div class="status">
+    <div class="status-row"><span class="status-label">Model</span><span>{model_display}</span></div>
+    <div class="status-row"><span class="status-label">WeChat</span><span>{wechat_status}</span></div>
+    <div class="status-row"><span class="status-label">Telegram</span><span>{telegram_status}</span></div>
+  </div>
+</div>
+<script>
+if (!{"true" if status.get("setup_complete") else "false"}) window.location.href = "http://localhost:8643/setup";
+</script>
+</body></html>"""
+
+
+async def handle_landing(request: web.Request) -> web.Response:
+    status = get_setup_status()
+    return web.Response(text=landing_page_html(status), content_type="text/html")
+
+
+async def handle_status(request: web.Request) -> web.Response:
+    return web.json_response(get_setup_status())
+
+
+@web.middleware
+async def cors_middleware(request: web.Request, handler):
+    resp = await handler(request)
+    origin = request.headers.get("Origin", "")
+    if origin in ("http://localhost:3000", "http://localhost:3001"):
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+    if request.method == "OPTIONS":
+        resp.set_status(204)
+    return resp
+
+
+def create_app() -> web.Application:
+    app = web.Application(middlewares=[cors_middleware])
+    app.router.add_get("/", handle_landing)
+    app.router.add_get("/status", handle_status)
+    return app
