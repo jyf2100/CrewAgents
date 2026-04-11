@@ -327,7 +327,11 @@ if (!{"true" if status.get("setup_complete") else "false"}) window.location.href
 
 async def handle_landing(request: web.Request) -> web.Response:
     status = get_setup_status()
-    return web.Response(text=landing_page_html(status), content_type="text/html")
+    resp = web.Response(text=landing_page_html(status), content_type="text/html")
+    # Prevent browser cache issues after port reassignment
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 async def handle_status(request: web.Request) -> web.Response:
