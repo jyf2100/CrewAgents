@@ -249,6 +249,7 @@ def get_setup_status() -> dict:
 # --- aiohttp server ---
 import asyncio
 
+import aiohttp
 from aiohttp import web
 
 LANDING_PORT = 3000
@@ -818,6 +819,180 @@ async def handle_wizard(request: web.Request) -> web.Response:
     return web.Response(text=html, content_type="text/html")
 
 
+def _check_auth(request: web.Request) -> bool:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:] == ensure_api_server_key()
+    return False
+
+
+async def handle_save_model(request: web.Request) -> web.Response:
+    if not _check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    data = await request.json()
+    provider = data.get("provider", "")
+    api_key = data.get("api_key", "")
+    model = data.get("model", "")
+    proxy = data.get("proxy", "")
+
+    if provider not in PROVIDERS:
+        return web.json_response({"error": f"Unknown provider: {provider}"}, status=400)
+
+    p = PROVIDERS[provider]
+    env_updates = {p["env_key"]: api_key}
+    if provider == "custom" and data.get("base_url"):
+        env_updates["OPENAI_BASE_URL"] = data["base_url"]
+    if proxy:
+        env_updates["HTTP_PROXY"] = proxy
+        env_updates["HTTPS_PROXY"] = proxy
+
+    try:
+        write_env(env_updates)
+        write_config_yaml(model, provider)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+    return web.json_response({"ok": True})
+
+
+async def handle_test_conn(request: web.Request) -> web.Response:
+    if not _check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    data = await request.json()
+    provider = data.get("provider", "")
+    api_key = data.get("api_key", "")
+    model = data.get("model", "")
+    proxy = data.get("proxy", "")
+
+    if provider not in PROVIDERS:
+        return web.json_response({"error": "Unknown provider"}, status=400)
+    p = PROVIDERS[provider]
+    base_url = data.get("base_url") or p["base_url"]
+    if not base_url:
+        return web.json_response({"ok": False, "detail": "Base URL required for custom provider"})
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{base_url}/chat/completions",
+                json={"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                proxy=proxy or None,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status == 200:
+                    return web.json_response({"ok": True})
+                body = await resp.text()
+                return web.json_response({"ok": False, "status": resp.status, "detail": body[:200]})
+    except Exception as e:
+        return web.json_response({"ok": False, "detail": str(e)})
+
+
+async def handle_complete(request: web.Request) -> web.Response:
+    if not _check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    mark_setup_complete()
+    return web.json_response({"ok": True})
+
+
+async def handle_reset(request: web.Request) -> web.Response:
+    if not _check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    reset_setup()
+    return web.json_response({"ok": True})
+
+
+# --- WeChat QR state (per-process, single user) ---
+_wechat_state = {"status": "idle", "qr_url": "", "qr_value": "", "credentials": None}
+
+ILINK_BASE_URL = "https://ilinkai.weixin.qq.com"
+ILINK_HEADERS = {
+    "AuthorizationType": "ilink_bot_token",
+    "iLink-App-Id": "bot",
+    "iLink-App-ClientVersion": str((2 << 16) | (2 << 8) | 0),
+}
+
+
+async def handle_wechat_qr(request: web.Request) -> web.Response:
+    """Fetch a fresh QR code from iLink. Starts a background polling task."""
+    _wechat_state["status"] = "fetching"
+    _wechat_state["qr_url"] = ""
+    _wechat_state["credentials"] = None
+
+    try:
+        async with aiohttp.ClientSession(base_url=ILINK_BASE_URL, headers=ILINK_HEADERS) as session:
+            async with session.get("ilink/bot/get_bot_qrcode") as resp:
+                data = json.loads(await resp.text())
+
+        qr_value = str(data.get("qrcode", ""))
+        qr_img_url = str(data.get("qrcode_img_content", ""))
+
+        if not qr_value and not qr_img_url:
+            _wechat_state["status"] = "error"
+            return web.json_response({"status": "error", "detail": "No QR code returned"})
+
+        _wechat_state["qr_value"] = qr_value
+        _wechat_state["qr_url"] = qr_img_url or qr_value
+        _wechat_state["status"] = "waiting"
+
+        asyncio.ensure_future(_poll_wechat_scan())
+
+        return web.json_response({"status": "waiting", "qr_url": _wechat_state["qr_url"]})
+    except Exception as e:
+        _wechat_state["status"] = "error"
+        return web.json_response({"status": "error", "detail": str(e)})
+
+
+async def _poll_wechat_scan() -> None:
+    """Background task: poll iLink for QR scan status."""
+    qr_value = _wechat_state.get("qr_value", "")
+    if not qr_value:
+        return
+
+    async with aiohttp.ClientSession(base_url=ILINK_BASE_URL, headers=ILINK_HEADERS) as session:
+        for _ in range(60):  # 2 min
+            await asyncio.sleep(2)
+            try:
+                async with session.get(f"ilink/bot/get_qrcode_status?qrcode={qr_value}") as resp:
+                    status_data = json.loads(await resp.text())
+            except Exception:
+                continue
+
+            status = str(status_data.get("status", ""))
+
+            if status == "2":
+                _wechat_state["status"] = "scanned"
+            elif status in ("0", "success"):
+                account_id = str(status_data.get("ilink_bot_id", ""))
+                token = str(status_data.get("bot_token", ""))
+                base_url = str(status_data.get("baseurl", "") or ILINK_BASE_URL)
+                if account_id and token:
+                    _wechat_state["status"] = "success"
+                    _wechat_state["credentials"] = {
+                        "WEIXIN_TOKEN": token,
+                        "WEIXIN_ACCOUNT_ID": account_id,
+                        "WEIXIN_BASE_URL": base_url,
+                    }
+                    write_env(_wechat_state["credentials"])
+                    return
+            elif status == "3":
+                new_qr = str(status_data.get("qrcode", ""))
+                new_img = str(status_data.get("qrcode_img_content", ""))
+                if new_qr:
+                    qr_value = new_qr
+                    _wechat_state["qr_value"] = new_qr
+                    _wechat_state["qr_url"] = new_img or new_qr
+
+    _wechat_state["status"] = "timeout"
+
+
+async def handle_wechat_poll(request: web.Request) -> web.Response:
+    return web.json_response({
+        "status": _wechat_state["status"],
+        "qr_url": _wechat_state["qr_url"],
+    })
+
+
 async def run_servers():
     """Run landing page (3000) and wizard (8643) concurrently."""
     ensure_api_server_key()
@@ -829,7 +1004,11 @@ async def run_servers():
     wizard_app = web.Application(middlewares=[cors_middleware])
     wizard_app.router.add_get("/setup", handle_wizard)
     wizard_app.router.add_get("/setup/status", handle_status)
-    # Additional routes will be added by Tasks 5-7
+    wizard_app.router.add_post("/setup/model", handle_save_model)
+    wizard_app.router.add_post("/setup/test-conn", handle_test_conn)
+    wizard_app.router.add_post("/setup/complete", handle_complete)
+    wizard_app.router.add_delete("/setup/reset", handle_reset)
+    # Additional routes will be added by Tasks 6-7
 
     runner1 = web.AppRunner(landing_app)
     runner2 = web.AppRunner(wizard_app)
