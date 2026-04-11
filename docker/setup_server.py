@@ -336,3 +336,43 @@ def create_app() -> web.Application:
     app.router.add_get("/", handle_landing)
     app.router.add_get("/status", handle_status)
     return app
+
+
+async def handle_wizard(request: web.Request) -> web.Response:
+    """Placeholder — wizard HTML will be added in Task 4."""
+    return web.Response(text="<html><body><h1>Hermes Setup Wizard</h1><p>Wizard coming soon...</p></body></html>", content_type="text/html")
+
+
+async def run_servers():
+    """Run landing page (3000) and wizard (8643) concurrently."""
+    ensure_api_server_key()
+
+    # Landing app (port 3000)
+    landing_app = create_app()
+
+    # Wizard app (port 8643)
+    wizard_app = web.Application(middlewares=[cors_middleware])
+    wizard_app.router.add_get("/setup", handle_wizard)
+    wizard_app.router.add_get("/setup/status", handle_status)
+    # Additional routes will be added by Tasks 5-7
+
+    runner1 = web.AppRunner(landing_app)
+    runner2 = web.AppRunner(wizard_app)
+    await runner1.setup()
+    await runner2.setup()
+
+    site1 = web.TCPSite(runner1, "127.0.0.1", LANDING_PORT)
+    site2 = web.TCPSite(runner2, "127.0.0.1", WIZARD_PORT)
+    await site1.start()
+    await site2.start()
+
+    print("=" * 50)
+    print("  Hermes Agent 已启动！")
+    print(f"  打开浏览器: http://localhost:{LANDING_PORT}")
+    print("=" * 50)
+
+    await asyncio.Event().wait()
+
+
+if __name__ == "__main__":
+    asyncio.run(run_servers())
