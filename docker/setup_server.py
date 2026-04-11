@@ -993,6 +993,33 @@ async def handle_wechat_poll(request: web.Request) -> web.Response:
     })
 
 
+async def handle_save_telegram(request: web.Request) -> web.Response:
+    if not _check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    data = await request.json()
+    token = data.get("token", "")
+    if not token:
+        return web.json_response({"error": "Token required"}, status=400)
+    try:
+        write_env({"TELEGRAM_BOT_TOKEN": token})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+    return web.json_response({"ok": True})
+
+
+async def handle_restart_gateway(request: web.Request) -> web.Response:
+    """Restart the hermes-agent container via Docker socket."""
+    if not _check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        import docker
+        client = docker.from_env()
+        client.containers.get("hermes-agent").restart(timeout=10)
+        return web.json_response({"ok": True, "detail": "Restarting hermes-agent"})
+    except Exception as e:
+        return web.json_response({"ok": False, "detail": str(e)})
+
+
 async def run_servers():
     """Run landing page (3000) and wizard (8643) concurrently."""
     ensure_api_server_key()
@@ -1010,7 +1037,8 @@ async def run_servers():
     wizard_app.router.add_delete("/setup/reset", handle_reset)
     wizard_app.router.add_get("/setup/platforms/wechat/qr", handle_wechat_qr)
     wizard_app.router.add_get("/setup/platforms/wechat/poll", handle_wechat_poll)
-    # Additional routes will be added by Task 7
+    wizard_app.router.add_post("/setup/platforms/telegram", handle_save_telegram)
+    wizard_app.router.add_post("/setup/restart", handle_restart_gateway)
 
     runner1 = web.AppRunner(landing_app)
     runner2 = web.AppRunner(wizard_app)
