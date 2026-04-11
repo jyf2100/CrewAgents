@@ -145,7 +145,7 @@ def reset_setup() -> None:
 _cached_api_key: Optional[str] = None
 
 def ensure_api_server_key() -> str:
-    """Get or generate API_SERVER_KEY, cache in memory."""
+    """Get or generate API_SERVER_KEY. Called once at startup; returns cached value thereafter."""
     global _cached_api_key
     if _cached_api_key:
         return _cached_api_key
@@ -156,6 +156,13 @@ def ensure_api_server_key() -> str:
         write_env({"API_SERVER_KEY": key})
     _cached_api_key = key
     return key
+
+
+def get_api_key() -> str:
+    """Return the cached API key. Raises if not initialized."""
+    if not _cached_api_key:
+        raise RuntimeError("API key not initialized — call ensure_api_server_key() first")
+    return _cached_api_key
 
 
 # --- Provider definitions ---
@@ -316,19 +323,33 @@ async def handle_landing(request: web.Request) -> web.Response:
 
 
 async def handle_status(request: web.Request) -> web.Response:
+    """Public status — strips sensitive data. Full status requires auth."""
+    status = get_setup_status()
+    # Remove sensitive fields for unauthenticated access
+    status.pop("masked_keys", None)
+    status.pop("proxy", None)
+    return web.json_response(status)
+
+
+async def handle_status_authed(request: web.Request) -> web.Response:
+    """Authenticated status — includes masked keys and proxy for pre-population."""
+    if not _check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
     return web.json_response(get_setup_status())
 
 
 @web.middleware
 async def cors_middleware(request: web.Request, handler):
-    resp = await handler(request)
+    # Handle OPTIONS preflight before dispatching to handler
+    if request.method == "OPTIONS":
+        resp = web.Response(status=204)
+    else:
+        resp = await handler(request)
     origin = request.headers.get("Origin", "")
     if origin in ("http://localhost:3000", "http://localhost:3001"):
         resp.headers["Access-Control-Allow-Origin"] = origin
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
-    if request.method == "OPTIONS":
-        resp.set_status(204)
     return resp
 
 
@@ -531,7 +552,7 @@ function authHeaders() {
 }
 
 async function fetchStatus() {
-  const resp = await fetch("/setup/status");
+  const resp = await fetch("/setup/status", { headers: authHeaders() });
   setupStatus = await resp.json();
   return setupStatus;
 }
@@ -664,7 +685,22 @@ async function startWechatQR() {
     const resp = await fetch("/setup/platforms/wechat/qr", { headers: authHeaders() });
     const data = await resp.json();
     if (data.qr_url) {
-      qrArea.innerHTML = '<img src="' + data.qr_url + '" alt="WeChat QR Code"><div class="qr-status" id="qrStatus" role="status" aria-live="polite"><span class="spinner"></span>Waiting for scan...</div>';
+      // Use DOM API to prevent XSS from untrusted QR URL
+      var img = document.createElement("img");
+      img.src = data.qr_url;
+      img.alt = "WeChat QR Code";
+      img.style.maxWidth = "200px";
+      img.style.borderRadius = "8px";
+      img.style.border = "1px solid #334155";
+      qrArea.innerHTML = "";
+      qrArea.appendChild(img);
+      var statusDiv = document.createElement("div");
+      statusDiv.className = "qr-status";
+      statusDiv.id = "qrStatus";
+      statusDiv.setAttribute("role", "status");
+      statusDiv.setAttribute("aria-live", "polite");
+      statusDiv.innerHTML = '<span class="spinner"></span>Waiting for scan...';
+      qrArea.appendChild(statusDiv);
       pollWechat();
     } else {
       qrStatus.textContent = data.error || "Failed to get QR code";
@@ -762,7 +798,7 @@ async function restartGateway() {
       return;
     }
     try {
-      const resp = await fetch("/setup/status");
+      const resp = await fetch("/setup/status", { headers: authHeaders() });
       const data = await resp.json();
       if (data.has_api_key) {
         clearInterval(poll);
@@ -814,7 +850,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
 async def handle_wizard(request: web.Request) -> web.Response:
     """Full 3-step setup wizard SPA."""
-    key = ensure_api_server_key()
+    key = get_api_key()
     html = WIZARD_HTML.replace("__API_KEY__", key)
     return web.Response(text=html, content_type="text/html")
 
@@ -822,7 +858,7 @@ async def handle_wizard(request: web.Request) -> web.Response:
 def _check_auth(request: web.Request) -> bool:
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
-        return auth[7:] == ensure_api_server_key()
+        return auth[7:] == get_api_key()
     return False
 
 
@@ -1022,6 +1058,9 @@ async def handle_restart_gateway(request: web.Request) -> web.Response:
 
 async def run_servers():
     """Run landing page (3000) and wizard (8643) concurrently."""
+    # Ensure .env exists (Docker bind-mount creates a directory if file is missing)
+    if not os.path.exists(ENV_PATH):
+        Path(ENV_PATH).touch()
     ensure_api_server_key()
 
     # Landing app (port 3000)
@@ -1030,7 +1069,7 @@ async def run_servers():
     # Wizard app (port 8643)
     wizard_app = web.Application(middlewares=[cors_middleware])
     wizard_app.router.add_get("/setup", handle_wizard)
-    wizard_app.router.add_get("/setup/status", handle_status)
+    wizard_app.router.add_get("/setup/status", handle_status_authed)
     wizard_app.router.add_post("/setup/model", handle_save_model)
     wizard_app.router.add_post("/setup/test-conn", handle_test_conn)
     wizard_app.router.add_post("/setup/complete", handle_complete)
