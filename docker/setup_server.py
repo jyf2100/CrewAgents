@@ -1008,7 +1008,9 @@ async def run_servers():
     wizard_app.router.add_post("/setup/test-conn", handle_test_conn)
     wizard_app.router.add_post("/setup/complete", handle_complete)
     wizard_app.router.add_delete("/setup/reset", handle_reset)
-    # Additional routes will be added by Tasks 6-7
+    wizard_app.router.add_get("/setup/platforms/wechat/qr", handle_wechat_qr)
+    wizard_app.router.add_get("/setup/platforms/wechat/poll", handle_wechat_poll)
+    # Additional routes will be added by Task 7
 
     runner1 = web.AppRunner(landing_app)
     runner2 = web.AppRunner(wizard_app)
