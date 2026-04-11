@@ -267,7 +267,7 @@ import asyncio
 import aiohttp
 from aiohttp import web
 
-LANDING_PORT = 3000
+LANDING_PORT = 3080
 WIZARD_PORT = 8643
 
 
@@ -361,7 +361,7 @@ async def cors_middleware(request: web.Request, handler):
     else:
         resp = await handler(request)
     origin = request.headers.get("Origin", "")
-    if origin in ("http://localhost:3000", "http://localhost:3001"):
+    if origin in ("http://localhost:3080", "http://localhost:3001"):
         resp.headers["Access-Control-Allow-Origin"] = origin
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"

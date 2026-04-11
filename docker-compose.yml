@@ -49,7 +49,7 @@ services:
     container_name: hermes-setup
     entrypoint: ["python3", "/opt/hermes/docker/setup_server.py"]
     ports:
-      - "3000:3000"
+      - "3080:3080"
       - "8643:8643"
     volumes:
       - hermes-data:/opt/data
