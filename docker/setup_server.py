@@ -361,10 +361,23 @@ async def cors_middleware(request: web.Request, handler):
     return resp
 
 
+async def handle_manifest(request: web.Request) -> web.Response:
+    """Return minimal PWA manifest to avoid 404 in browser console."""
+    return web.json_response({
+        "name": "Hermes Agent",
+        "short_name": "Hermes",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#0F172A",
+        "theme_color": "#FFB800",
+    })
+
+
 def create_app() -> web.Application:
     app = web.Application(middlewares=[cors_middleware])
     app.router.add_get("/", handle_landing)
     app.router.add_get("/status", handle_status)
+    app.router.add_get("/manifest.json", handle_manifest)
     return app
 
 
