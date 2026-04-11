@@ -54,12 +54,20 @@ def read_env() -> dict[str, str]:
 
 
 def atomic_write(path: str, content: str) -> None:
-    """Write file atomically: write to temp, then os.replace()."""
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+    """Write file safely. Uses os.replace() for atomicity; falls back to
+    direct write for bind-mounted files where rename across mounts fails."""
+    parent = os.path.dirname(path)
+    fd, tmp = tempfile.mkstemp(dir=parent)
     try:
         with os.fdopen(fd, "w") as f:
             f.write(content)
-        os.replace(tmp, path)
+        try:
+            os.replace(tmp, path)
+        except OSError:
+            # Bind-mounted files can't be replaced via rename — write directly
+            os.unlink(tmp)
+            with open(path, "w") as f:
+                f.write(content)
     except Exception:
         try:
             os.unlink(tmp)
@@ -1084,8 +1092,9 @@ async def run_servers():
     await runner1.setup()
     await runner2.setup()
 
-    site1 = web.TCPSite(runner1, "127.0.0.1", LANDING_PORT)
-    site2 = web.TCPSite(runner2, "127.0.0.1", WIZARD_PORT)
+    bind_host = os.environ.get("SETUP_BIND_HOST", "0.0.0.0")
+    site1 = web.TCPSite(runner1, bind_host, LANDING_PORT)
+    site2 = web.TCPSite(runner2, bind_host, WIZARD_PORT)
     await site1.start()
     await site2.start()
 
