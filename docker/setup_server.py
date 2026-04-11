@@ -329,7 +329,9 @@ if (!{"true" if status.get("setup_complete") else "false"}) window.location.href
 async def handle_landing(request: web.Request) -> web.Response:
     status = get_setup_status()
     resp = web.Response(text=landing_page_html(status), content_type="text/html")
-    # Prevent browser cache issues after port reassignment
+    # Force clear all browser data (cache, service workers, storage) from previous
+    # Open WebUI installation that was on this port. This is a one-time fix.
+    resp.headers["Clear-Site-Data"] = '"cache", "storage", "executionContexts"'
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     return resp
@@ -378,11 +380,54 @@ async def handle_manifest(request: web.Request) -> web.Response:
     })
 
 
+# Self-unregistering service worker that replaces any old SW (e.g. Open WebUI)
+# left over from a previous installation on this port.
+# The browser checks for SW script updates from the network, so it will fetch
+# this script and replace the old SW. This script clears caches and unregisters.
+_SELF_DESTRUCT_SW_JS = r"""
+// Hermes replacement SW: clear all cached data and self-unregister.
+// This removes service workers left by previous installations (e.g. Open WebUI).
+self.addEventListener('install', function(event) {
+  event.waitUntil(
+    caches.keys().then(function(names) {
+      return Promise.all(names.map(function(n) { return caches.delete(n); }));
+    }).then(function() { return self.skipWaiting(); })
+  );
+});
+self.addEventListener('activate', function(event) {
+  event.waitUntil(
+    self.registration.unregister().then(function() {
+      return self.clients.matchAll();
+    }).then(function(clients) {
+      clients.forEach(function(c) { c.navigate(c.url); });
+      return self.clients.claim();
+    })
+  );
+});
+// Pass-through: never intercept requests
+self.addEventListener('fetch', function(event) {
+  event.respondWith(fetch(event.request));
+});
+"""
+
+
+async def handle_sw_js(request: web.Request) -> web.Response:
+    """Serve a self-unregistering SW to replace any leftover SW from a prior app."""
+    resp = web.Response(
+        text=_SELF_DESTRUCT_SW_JS,
+        content_type="application/javascript",
+    )
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Clear-Site-Data"] = '"cache", "storage", "executionContexts"'
+    return resp
+
+
 def create_app() -> web.Application:
     app = web.Application(middlewares=[cors_middleware])
     app.router.add_get("/", handle_landing)
     app.router.add_get("/status", handle_status)
     app.router.add_get("/manifest.json", handle_manifest)
+    app.router.add_get("/sw.js", handle_sw_js)
     return app
 
 
