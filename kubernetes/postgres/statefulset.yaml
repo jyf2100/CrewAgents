@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: hermes-agent
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: hermes
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-db-secret
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-db-secret
+                  key: password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d/init.sql
+              subPath: init.sql
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+# ConfigMap for init.sql
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-script
+  namespace: hermes-agent
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS api_keys (
+        api_key VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        sandbox_policy VARCHAR(20) NOT NULL DEFAULT 'resident',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        revoked_at TIMESTAMP,
+        INDEX idx_user_id (user_id),
+        INDEX idx_revoked_at (revoked_at)
+    );
+    CREATE TABLE IF NOT EXISTS sandbox_registry (
+        user_id VARCHAR(64) PRIMARY KEY,
+        sandbox_endpoint VARCHAR(255) NOT NULL,
+        sandbox_policy VARCHAR(20) NOT NULL DEFAULT 'resident',
+        last_seen_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
