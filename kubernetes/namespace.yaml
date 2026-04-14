@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hermes-agent
+  labels:
+    name: hermes-agent
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-isolation
+  namespace: hermes-agent
+spec:
+  podSelector:
+    matchLabels:
+      app: sandbox
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: hermes-agent
+      ports:
+        - protocol: TCP
+          port: 8642
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-isolation
+  namespace: hermes-agent
+spec:
+  podSelector:
+    matchLabels:
+      app: hermes-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from: []  # 允许任意来源（API Gateway 在集群外）
