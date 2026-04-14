@@ -349,11 +349,42 @@ subjects:
     namespace: hermes-agent
 ```
 
-### 4.4 OpenSandbox Pool (预热池)
+### 4.4 OpenSandbox Pool (预热池) + Sandbox RBAC
 
 > ⚠️ **待验证**：以下 `capacitySpec` 字段名为推测。需要先执行 `kubectl apply --dry-run=server -f pool.yaml` 验证 CRD 合法性。若失败，对照 `OpenSandbox/kubernetes/config/crd/bases/sandbox.opensandbox.io_pools.yaml` 修正字段名。
 
 ```yaml
+# Sandbox Pod 专用 ServiceAccount + RBAC（registry-agent 需要 PATCH Endpoints）
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sandbox
+  namespace: hermes-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sandbox-endpoints
+  namespace: hermes-agent
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sandbox-endpoints
+  namespace: hermes-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sandbox-endpoints
+subjects:
+  - kind: ServiceAccount
+    name: sandbox
+    namespace: hermes-agent
+---
 apiVersion: sandbox.opensandbox.io/v1alpha1
 kind: Pool
 metadata:
@@ -365,16 +396,17 @@ spec:
       labels:
         app: sandbox
     spec:
+      serviceAccountName: sandbox  # 有 Endpoints PATCH 权限的 SA
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
       containers:
-        # 主容器：Hermes Agent（运行 Agent 模式，不运行 Gateway 模式）
+        # 主容器：Hermes Agent（Gateway 模式，无 messaging token 时只启动 API server）
         - name: sandbox
           image: nousresearch/hermes-agent:v0.8.0
           imagePullPolicy: IfNotPresent
-          command: ["hermes", "agent"]  # 修复：运行 agent 模式，不是 gateway 模式
+          command: ["hermes", "gateway"]
           ports:
             - containerPort: 8642
           securityContext:
@@ -383,6 +415,12 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
+            - name: API_SERVER_ENABLED
+              value: "true"
+            - name: API_SERVER_HOST
+              value: "0.0.0.0"
+            - name: API_SERVER_PORT
+              value: "8642"
             - name: POD_IP
               valueFrom:
                 fieldRef:
@@ -396,7 +434,6 @@ spec:
                   - /bin/sh
                   - -c
                   - |
-                    # 使用 curl 而非 wget（更通用）
                     curl -sf -X POST http://localhost:8080/deregister || true
                     sleep 2
           resources:
@@ -439,8 +476,8 @@ spec:
             limits:
               cpu: 100m
               memory: 128Mi
-          lifecycle:
-            startCondition: FirstStart  # Sidecar 先于主容器启动
+          # registry-agent 作为 init container 先启动（等待主容器就绪）
+          # OpenSandbox Pool template.spec 支持 initContainers
       volumes:
         - name: sandbox-data
           emptyDir: {}
@@ -699,16 +736,19 @@ EOF
 | 2 | OpenSandbox CRD 字段名未验证 | 添加 `kubectl apply --dry-run=server` 验证步骤 + 待验证说明 |
 | 3 | Gateway Deployment 缺少 template labels | 补全 `spec.template.metadata.labels` |
 | 4 | preStop hook 使用 wget | 改用 curl + sleep 2 延迟 |
-| 5 | sandbox 容器运行 gateway 模式 | 改为 `hermes agent` 模式 |
+| 5 | sandbox 容器 `hermes agent` 命令不存在 | 改为 `hermes gateway`（`hermes agent` 不是有效子命令）|
 | 6 | Auth 认证流程未定义 | 新增 3.1 节定义 Key-User 映射表 |
 | 7 | 51st 用户场景未处理 | 新增 6.2 节定义排队 + 回收策略 |
 | 8 | TTL 机制未设计 | 新增 6.3 节 TTL 回收方案 |
 | 9 | 无 resource limits | 所有容器添加 requests/limits |
 | 10 | 无 SecurityContext | 所有 Pod/容器添加 runAsNonRoot 等 |
 | 11 | 无 PodDisruptionBudget | 添加 hermes-gateway-pdb |
-| 12 | 无 RBAC | 添加 Role + RoleBinding |
+| 12 | 无 RBAC | 添加 Role + RoleBinding（但 sandbox SA 无 Endpoints 权限）|
 | 13 | 无 NetworkPolicy | 添加 sandbox-isolation NetworkPolicy |
 | 14 | Ingress 缺 TLS | 添加 tls section |
 | 15 | poolMax=20 不足 | 调整为 poolMax=30 |
 | 16 | 镜像用 latest | 改为固定版本 v0.8.0 |
-| 17 | DNS 命名不一致 | 统一为 Endpoints 方案，DNS 即 `<user_id>.hermes-agent.svc.cluster.local` |
+| 17 | DNS 命名不一致 | 统一为 Endpoints 方案 |
+| 18 | sandbox pods 无 Endpoints RBAC 权限 | **v2.1 修复**：添加 sandbox SA + sandbox-endpoints Role + RoleBinding |
+| 19 | `startCondition: FirstStart` 无效 | **v2.1 修复**：改用 initContainers（OpenSandbox 支持）|
+| 20 | sandbox 容器未设置 API_SERVER_ENABLED | **v2.1 修复**：添加 `API_SERVER_ENABLED=true` 环境变量 |
