@@ -15,7 +15,7 @@ spec:
         runAsUser: 1000
         fsGroup: 1000
       initContainers:
-        # init container: 等待主容器就绪后注册 Endpoints
+        # init container: 轮询 /shared/registry_done 文件等待主容器就绪
         - name: registry-init
           image: nousresearch/hermes-agent:v0.8.0
           imagePullPolicy: IfNotPresent
@@ -31,6 +31,11 @@ spec:
                   fieldPath: status.podIP
             - name: SANDBOX_PORT
               value: "8642"
+          volumeMounts:
+            - name: sandbox-data
+              mountPath: /opt/data
+            - name: shared
+              mountPath: /shared
           resources:
             requests:
               cpu: 50m
@@ -39,7 +44,7 @@ spec:
               cpu: 100m
               memory: 128Mi
       containers:
-        # 主容器：Hermes Agent（Gateway 模式，无 messaging token 时只启动 API server）
+        # 主容器：Hermes Agent（Gateway 模式）
         - name: sandbox
           image: nousresearch/hermes-agent:v0.8.0
           imagePullPolicy: IfNotPresent
@@ -65,6 +70,21 @@ spec:
             - name: HERMES_HOME
               value: "/opt/data"
           lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    # 等待 Hermes Gateway 就绪后写入标记文件
+                    for i in $(seq 1 30); do
+                      if curl -sf http://localhost:8642/health > /dev/null 2>&1; then
+                        echo "ready" > /shared/registry_done
+                        exit 0
+                      fi
+                      sleep 2
+                    done
+                    echo "timeout" > /shared/registry_done
             preStop:
               exec:
                 command:
@@ -83,6 +103,8 @@ spec:
           volumeMounts:
             - name: sandbox-data
               mountPath: /opt/data
+            - name: shared
+              mountPath: /shared
         # Sidecar：Registry Agent（处理注销请求）
         - name: registry-agent
           image: nousresearch/hermes-agent:v0.8.0
@@ -111,6 +133,8 @@ spec:
               memory: 128Mi
       volumes:
         - name: sandbox-data
+          emptyDir: {}
+        - name: shared
           emptyDir: {}
   capacitySpec:
     bufferMin: 5
