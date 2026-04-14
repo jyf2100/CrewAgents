@@ -53,9 +53,10 @@ spec:
         - name: postgres-init
           configMap:
             name: postgres-init-script
-        # NOTE: Using emptyDir for testing without PV.
-        # For production with persistent storage, replace this emptyDir with
-        # a volumeClaimTemplates section and remove this emptyDir.
+        # NOTE: Using emptyDir for testing. Data is lost on pod restart.
+        # PRODUCTION: Uncomment the volumeClaimTemplates section below and delete
+        # this emptyDir volume. Requires a StorageClass to be available.
+        # Run: kubectl get storageclass  # to see available classes
         - name: postgres-data
           emptyDir: {}
 ---
