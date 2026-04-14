@@ -2,9 +2,10 @@
 gateway/sandbox_router.py: 沙箱发现 + 路由逻辑。
 
 提供:
-- SandboxRouter.get_sandbox_url(user_id) -> str
-- SandboxRouter.create_sandbox_if_needed(user_id) -> None
-- SandboxRouter.get_user_policy(user_id) -> str
+- SandboxRouter.get_sandbox_url(user_id) -> str  # 通过 BatchSandbox label selector 获取 pod IP
+- SandboxRouter.is_pool_full() -> bool            # 检查池是否满载
+- SandboxRouter.create_sandbox(user_id) -> bool   # 创建沙箱（幂等）
+- SandboxRouter.wait_for_sandbox(user_id) -> str  # 等待沙箱就绪
 """
 import os
 import time
@@ -43,21 +44,57 @@ class SandboxRouter:
         return self._sandbox_v1
 
     def get_sandbox_url(self, user_id: str) -> Optional[str]:
-        """查询 Endpoints 获取沙箱地址，若不存在返回 None"""
+        """通过 BatchSandbox label selector 查找 pod IP"""
         try:
-            ep = self.core_v1.read_endpoints(name=user_id, namespace=K8S_NAMESPACE)
-            if ep.subsets and ep.subsets[0].addresses:
-                ip = ep.subsets[0].addresses[0].ip
-                port = ep.subsets[0].ports[0].port
-                return f"http://{ip}:{port}"
+            # 1. 查找用户的 BatchSandbox
+            batch_sandboxes = self.sandbox_v1.list_namespaced_custom_object(
+                group="sandbox.opensandbox.io",
+                version="v1alpha1",
+                namespace=K8S_NAMESPACE,
+                plural="batchsandboxes",
+                label_selector=f"user_id={user_id}"
+            )
+            items = batch_sandboxes.get("items", [])
+            if not items:
+                return None
+            batch_name = items[0]["metadata"]["name"]
+
+            # 2. 获取 Pod IP
+            pod = self.core_v1.read_namespaced_pod(
+                name=batch_name,
+                namespace=K8S_NAMESPACE
+            )
+            pod_ip = pod.status.pod_ip
+            if not pod_ip:
+                return None
+            return f"http://{pod_ip}:8642"
         except ApiException as e:
             if e.status == 404:
                 return None
             raise
-        return None
+        except Exception:
+            return None
+
+    def _update_endpoint_timestamp(self, user_id: str):
+        """更新 Endpoints 的 last_seen timestamp annotation"""
+        try:
+            body = client.V1Endpoints(
+                metadata=client.V1ObjectMeta(
+                    name=user_id,
+                    namespace=K8S_NAMESPACE,
+                    annotations={"last_seen": str(int(time.time()))}
+                )
+            )
+            self.core_v1.patch_endpoints(
+                name=user_id,
+                namespace=K8S_NAMESPACE,
+                body=body
+            )
+        except Exception:
+            pass  # 静默失败，不阻塞路由
 
     def create_sandbox(self, user_id: str) -> bool:
-        """创建 BatchSandbox（常驻沙箱）"""
+        """创建 BatchSandbox（幂等：已存在时返回 True）"""
         pool_name = os.getenv("SANDBOX_POOL_NAME", "hermes-sandbox-pool")
         batch_name = f"sandbox-{user_id}"
 
@@ -87,6 +124,8 @@ class SandboxRouter:
             )
             return True
         except ApiException as e:
+            if e.status == 409:  # Already exists - idempotent
+                return True
             print(f"[SandboxRouter] Failed to create BatchSandbox: {e}")
             return False
 
@@ -104,17 +143,17 @@ class SandboxRouter:
         """获取或创建沙箱，返回沙箱 URL"""
         url = self.get_sandbox_url(user_id)
         if url:
+            # 更新 last_seen annotation
+            self._update_endpoint_timestamp(user_id)
             return url
 
-        # 沙箱不存在，尝试创建
         if not self.create_sandbox(user_id):
             return None
 
-        # 等待沙箱就绪
         return self.wait_for_sandbox(user_id)
 
-    def check_pool_capacity(self) -> bool:
-        """检查沙箱池是否满载。满载时返回 True."""
+    def is_pool_full(self) -> bool:
+        """检查沙箱池是否已满。满返回 True，未满返回 False."""
         pool_name = os.getenv("SANDBOX_POOL_NAME", "hermes-sandbox-pool")
         try:
             pool = self.sandbox_v1.get_namespaced_custom_object(
