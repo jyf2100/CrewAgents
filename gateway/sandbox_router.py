@@ -113,6 +113,25 @@ class SandboxRouter:
         # 等待沙箱就绪
         return self.wait_for_sandbox(user_id)
 
+    def check_pool_capacity(self) -> bool:
+        """检查沙箱池是否满载。满载时返回 True."""
+        pool_name = os.getenv("SANDBOX_POOL_NAME", "hermes-sandbox-pool")
+        try:
+            pool = self.sandbox_v1.get_namespaced_custom_object(
+                group="sandbox.opensandbox.io",
+                version="v1alpha1",
+                namespace=K8S_NAMESPACE,
+                plural="pools",
+                name=pool_name
+            )
+            status = pool.get("status", {})
+            allocated = status.get("allocated", 0)
+            pool_max = pool.get("spec", {}).get("capacitySpec", {}).get("poolMax", 30)
+            return allocated >= pool_max
+        except Exception as e:
+            print(f"[SandboxRouter] Failed to check pool capacity: {e}")
+            return False
+
 
 # 全局单例
 _sandbox_router: Optional[SandboxRouter] = None
