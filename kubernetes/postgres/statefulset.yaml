@@ -49,16 +49,17 @@ spec:
             - name: postgres-init
               mountPath: /docker-entrypoint-initdb.d/init.sql
               subPath: init.sql
-  volumeClaimTemplates:
-    - metadata:
-        name: postgres-data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 1Gi
+      volumes:
+        - name: postgres-init
+          configMap:
+            name: postgres-init-script
+        # NOTE: Using emptyDir for testing without PV.
+        # For production with persistent storage, replace this emptyDir with
+        # a volumeClaimTemplates section and remove this emptyDir.
+        - name: postgres-data
+          emptyDir: {}
 ---
-# ConfigMap for init.sql
+# ConfigMap for init.sql (auto-executed by postgres on first startup)
 apiVersion: v1
 kind: ConfigMap
 metadata:
