@@ -2,8 +2,8 @@
 """
 registry-init.py: 沙箱 Pod init container 脚本。
 
-在主容器启动前等待 Hermes Gateway API server 就绪，
-然后将 Pod IP:port 注册到 Kubernetes Endpoints（名称 = user_id）。
+轮询 /shared/registry_done 标记文件等待主容器 Hermes Gateway 就绪，
+然后将 Pod IP:port 注册到 Kubernetes Endpoints。
 
 Usage: python3 registry-init.py
 （环境变量：POD_NAME, POD_IP, SANDBOX_PORT）
@@ -11,8 +11,6 @@ Usage: python3 registry-init.py
 import os
 import sys
 import time
-import urllib.request
-import urllib.error
 
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
@@ -23,29 +21,30 @@ POD_IP = os.getenv("POD_IP")
 NAMESPACE = "hermes-agent"
 
 
-def wait_for_gateway(timeout: int = 60) -> bool:
-    """等待 Hermes Gateway API server 就绪（/health 返回 200）"""
-    url = f"http://localhost:{SANDBOX_PORT}/health"
+def wait_for_registration_marker(timeout: int = 120) -> bool:
+    """等待主容器 postStart 写入的标记文件"""
+    marker_path = "/shared/registry_done"
     start = time.time()
     while time.time() - start < timeout:
         try:
-            req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                if resp.status == 200:
-                    print(f"[registry-init] Gateway ready at {url}")
+            with open(marker_path, "r") as f:
+                content = f.read().strip()
+                if content == "ready":
+                    print("[registry-init] Sandbox ready, proceeding with registration")
                     return True
-        except (urllib.error.URLError, urllib.error.HTTPError):
+                elif content == "timeout":
+                    print("[registry-init] Sandbox startup timeout, proceeding anyway")
+                    return True
+        except FileNotFoundError:
             pass
         time.sleep(2)
-    print(f"[registry-init] Timeout waiting for gateway at {url}")
-    return False
+    print(f"[registry-init] Timeout waiting for marker file {marker_path}")
+    return True
 
 
 def register_endpoints() -> bool:
     """将 Pod IP:port 注册到同名 Endpoints"""
     core_v1 = client.CoreV1Api()
-
-    # Endpoints 名称从 POD_NAME 推断（格式：sandbox-<user_id>）
     endpoints_name = POD_NAME
 
     endpoints_body = client.V1Endpoints(
@@ -59,14 +58,11 @@ def register_endpoints() -> bool:
     )
 
     try:
-        # 尝试创建 Endpoints（若已存在则更新）
         existing = core_v1.read_endpoints(name=endpoints_name, namespace=NAMESPACE)
-        # 存在则更新
         core_v1.patch_endpoints(name=endpoints_name, namespace=NAMESPACE, body=endpoints_body)
         print(f"[registry-init] Updated Endpoints/{endpoints_name} -> {POD_IP}:{SANDBOX_PORT}")
     except ApiException as e:
         if e.status == 404:
-            # 不存在则创建
             core_v1.create_namespaced_endpoints(namespace=NAMESPACE, body=endpoints_body)
             print(f"[registry-init] Created Endpoints/{endpoints_name} -> {POD_IP}:{SANDBOX_PORT}")
         else:
@@ -83,17 +79,13 @@ def main():
     try:
         config.load_incluster_config()
     except config.ConfigException:
-        print("[registry-init] WARNING: Could not load in-cluster config, using kubeconfig")
         try:
             config.load_kube_config()
         except config.ConfigException:
             print("[registry-init] ERROR: No kubernetes config available")
             sys.exit(1)
 
-    if not wait_for_gateway():
-        print("[registry-init] Gateway not ready, skipping registration")
-        sys.exit(0)  # 不阻止 Pod 启动，只是跳过注册
-
+    wait_for_registration_marker()
     if register_endpoints():
         print("[registry-init] Registration complete")
     else:
