@@ -43,29 +43,37 @@ class DeregisterHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"Deregistering")
             # 异步执行注销，避免阻塞 HTTP 响应
-            threading.Thread(target=self._deregister, daemon=True).start()
+            threading.Thread(target=_deregister, daemon=True).start()
         else:
             self.send_response(404)
             self.end_headers()
 
-    def _deregister(self):
-        """从 Endpoints 注销当前 Pod"""
-        core_v1 = client.CoreV1Api()
-        endpoints_name = POD_NAME
+def _extract_batch_name(pod_name: str) -> str:
+    """从 Pod 名称提取 batch name (sandbox-{user_id})"""
+    parts = pod_name.split("-")
+    if len(parts) >= 3 and parts[0] == "sandbox":
+        return "-".join(parts[:2])
+    return pod_name  # fallback
 
-        try:
-            body = client.V1Endpoints(
-                metadata=client.V1ObjectMeta(name=endpoints_name, namespace=NAMESPACE),
-                subsets=[]
-            )
-            core_v1.patch_endpoints(name=endpoints_name, namespace=NAMESPACE, body=body)
-            print(f"[registry-agent] Deregistered Endpoints/{endpoints_name}")
-        except ApiException as e:
-            if e.status == 404:
-                print(f"[registry-agent] Endpoints/{endpoints_name} not found, skipping")
-            else:
-                print(f"[registry-agent] Failed to deregister: {e}")
-                sys.exit(1)
+
+def _deregister():
+    """从 Endpoints 注销当前 Pod"""
+    core_v1 = client.CoreV1Api()
+    batch_name = _extract_batch_name(POD_NAME)
+
+    try:
+        body = client.V1Endpoints(
+            metadata=client.V1ObjectMeta(name=batch_name, namespace=NAMESPACE),
+            subsets=[]
+        )
+        core_v1.patch_endpoints(name=batch_name, namespace=NAMESPACE, body=body)
+        print(f"[registry-agent] Deregistered Endpoints/{batch_name}")
+    except ApiException as e:
+        if e.status == 404:
+            print(f"[registry-agent] Endpoints/{batch_name} not found, skipping")
+        else:
+            print(f"[registry-agent] Failed to deregister: {e}")
+            sys.exit(1)
 
 
 def main():

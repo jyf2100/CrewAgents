@@ -77,16 +77,18 @@ class SandboxRouter:
 
     def _update_endpoint_timestamp(self, user_id: str):
         """更新 Endpoints 的 last_seen timestamp annotation"""
+        # Endpoints 名称使用 batch name (sandbox-{user_id})，与 registry-init 一致
+        batch_name = f"sandbox-{user_id}"
         try:
             body = client.V1Endpoints(
                 metadata=client.V1ObjectMeta(
-                    name=user_id,
+                    name=batch_name,
                     namespace=K8S_NAMESPACE,
                     annotations={"last_seen": str(int(time.time()))}
                 )
             )
             self.core_v1.patch_endpoints(
-                name=user_id,
+                name=batch_name,
                 namespace=K8S_NAMESPACE,
                 body=body
             )

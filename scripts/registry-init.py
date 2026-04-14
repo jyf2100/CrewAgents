@@ -42,10 +42,21 @@ def wait_for_registration_marker(timeout: int = 120) -> bool:
     return True
 
 
+def extract_batch_name(pod_name: str) -> str:
+    """从 Pod 名称提取 batch name (sandbox-{user_id})"""
+    # Pod 名称格式: sandbox-{user_id}-{随机后缀}
+    # 例如: sandbox-alice-5f4b9c7d6-r8s9m -> sandbox-alice
+    parts = pod_name.split("-")
+    if len(parts) >= 3 and parts[0] == "sandbox":
+        return "-".join(parts[:2])
+    return pod_name  # fallback
+
+
 def register_endpoints() -> bool:
-    """将 Pod IP:port 注册到同名 Endpoints"""
+    """将 Pod IP:port 注册到 batch name 命名的 Endpoints"""
     core_v1 = client.CoreV1Api()
-    endpoints_name = POD_NAME
+    batch_name = extract_batch_name(POD_NAME)
+    endpoints_name = batch_name
 
     endpoints_body = client.V1Endpoints(
         metadata=client.V1ObjectMeta(name=endpoints_name, namespace=NAMESPACE),
