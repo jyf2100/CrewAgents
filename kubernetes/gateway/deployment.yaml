@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-gateway
+  namespace: hermes-agent
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hermes-gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: hermes-gateway
+    spec:
+      serviceAccountName: hermes-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: gateway
+          image: nousresearch/hermes-agent:v0.8.0
+          imagePullPolicy: IfNotPresent
+          command: ["hermes", "gateway"]
+          ports:
+            - containerPort: 8642
+          env:
+            - name: API_SERVER_ENABLED
+              value: "true"
+            - name: API_SERVER_HOST
+              value: "0.0.0.0"
+            - name: API_SERVER_PORT
+              value: "8642"
+            - name: GATEWAY_ALLOW_ALL_USERS
+              value: "true"
+            - name: DB_HOST
+              value: "postgres.hermes-agent.svc.cluster.local"
+            - name: DB_NAME
+              value: "hermes"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-db-secret
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-db-secret
+                  key: password
+            - name: SANDBOX_TTL_MINUTES
+              value: "30"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8642
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8642
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: hermes-gateway
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: hermes-gateway
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-gateway
+  namespace: hermes-agent
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8642
+      targetPort: 8642
+  selector:
+    app: hermes-gateway
