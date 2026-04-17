@@ -8,9 +8,7 @@ class TestSandboxRouter:
         with patch('gateway.sandbox_router.config'):
             self.router = SandboxRouter()
         self.mock_sandbox_v1 = MagicMock()
-        self.mock_core_v1 = MagicMock()
         self.router._sandbox_v1 = self.mock_sandbox_v1
-        self.router._core_v1 = self.mock_core_v1
 
     def test_get_sandbox_url_found(self):
         """BatchSandbox endpoints 注解中有 Pod IP 时返回正确 URL"""
@@ -127,3 +125,18 @@ class TestSandboxRouter:
 
         # 不应抛异常
         self.router._update_endpoint_timestamp("alice")
+
+    def test_get_or_create_sandbox_renews_ttl_after_create(self):
+        """get_or_create_sandbox 在创建后也会续期 TTL"""
+        with patch.object(self.router, 'get_sandbox_url', side_effect=[None, "http://10.0.0.1:8642"]):
+            with patch.object(self.router, 'create_sandbox', return_value=True):
+                with patch.object(self.router, '_update_endpoint_timestamp') as mock_renew:
+                    result = self.router.get_or_create_sandbox("user_123")
+                    assert result == "http://10.0.0.1:8642"
+                    mock_renew.assert_called_once_with("user_123")
+
+    def test_is_pool_full_fails_closed(self):
+        """is_pool_full 在 API 异常时返回 True（fail-closed）"""
+        self.mock_sandbox_v1.get_namespaced_custom_object.side_effect = Exception("api unreachable")
+        result = self.router.is_pool_full()
+        assert result is True

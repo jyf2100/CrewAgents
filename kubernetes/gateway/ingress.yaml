@@ -4,6 +4,10 @@ metadata:
   name: hermes-ingress
   namespace: hermes-agent
 spec:
+  tls:
+    - hosts:
+        - hermes.local
+      secretName: hermes-tls-secret
   rules:
     - host: hermes.local
       http:
