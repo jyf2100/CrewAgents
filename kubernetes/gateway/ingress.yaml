@@ -1,21 +1,31 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: hermes-gateway-ingress
+  name: hermes-ingress
   namespace: hermes-agent
 spec:
-  tls:
-    - hosts:
-        - hermes.internal.example.com
-      secretName: hermes-tls-secret
   rules:
-    - host: hermes.internal.example.com
+    - host: hermes.local
       http:
         paths:
-          - path: /
+          - path: /api
             pathType: Prefix
             backend:
               service:
                 name: hermes-gateway
                 port:
                   number: 8642
+          - path: /dashboard
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes-gateway
+                port:
+                  number: 9119
+          - path: /webui
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes-webui
+                port:
+                  number: 8080
