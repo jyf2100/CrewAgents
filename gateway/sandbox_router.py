@@ -13,61 +13,41 @@ from typing import Optional
 
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
+import json
+from datetime import datetime, timezone, timedelta
 
 K8S_NAMESPACE = os.getenv("K8S_NAMESPACE", "hermes-agent")
 SANDBOX_TTL_MINUTES = int(os.getenv("SANDBOX_TTL_MINUTES", "30"))
+ENDPOINTS_ANNOTATION = "sandbox.opensandbox.io/endpoints"
 
 
 class SandboxRouter:
     def __init__(self):
-        self._core_v1 = None
-        self._sandbox_v1 = None
-
-    @property
-    def core_v1(self):
-        if self._core_v1 is None:
-            try:
-                config.load_incluster_config()
-            except config.ConfigException:
-                config.load_kube_config()
-            self._core_v1 = client.CoreV1Api()
-        return self._core_v1
-
-    @property
-    def sandbox_v1(self):
-        if self._sandbox_v1 is None:
-            try:
-                config.load_incluster_config()
-            except config.ConfigException:
-                config.load_kube_config()
-            self._sandbox_v1 = client.CustomObjectsApi()
-        return self._sandbox_v1
+        # K8s 配置只初始化一次
+        try:
+            config.load_incluster_config()
+        except config.ConfigException:
+            config.load_kube_config()
+        self._core_v1 = client.CoreV1Api()
+        self._sandbox_v1 = client.CustomObjectsApi()
 
     def get_sandbox_url(self, user_id: str) -> Optional[str]:
-        """通过 BatchSandbox label selector 查找 pod IP"""
+        """通过 BatchSandbox 的 endpoints 注解直接获取 Pod IP"""
+        batch_name = f"sandbox-{user_id}"
         try:
-            # 1. 查找用户的 BatchSandbox
-            batch_sandboxes = self.sandbox_v1.list_namespaced_custom_object(
+            bs = self._sandbox_v1.get_namespaced_custom_object(
                 group="sandbox.opensandbox.io",
                 version="v1alpha1",
                 namespace=K8S_NAMESPACE,
                 plural="batchsandboxes",
-                label_selector=f"user_id={user_id}"
+                name=batch_name
             )
-            items = batch_sandboxes.get("items", [])
-            if not items:
-                return None
-            batch_name = items[0]["metadata"]["name"]
-
-            # 2. 获取 Pod IP
-            pod = self.core_v1.read_namespaced_pod(
-                name=batch_name,
-                namespace=K8S_NAMESPACE
-            )
-            pod_ip = pod.status.pod_ip
-            if not pod_ip:
-                return None
-            return f"http://{pod_ip}:8642"
+            annotations = bs.get("metadata", {}).get("annotations", {})
+            ips_json = annotations.get(ENDPOINTS_ANNOTATION, "[]")
+            ips = json.loads(ips_json)
+            if ips and ips[0]:
+                return f"http://{ips[0]}:8642"
+            return None
         except ApiException as e:
             if e.status == 404:
                 return None
@@ -77,7 +57,6 @@ class SandboxRouter:
 
     def _update_endpoint_timestamp(self, user_id: str):
         """更新 Endpoints 的 last_seen timestamp annotation"""
-        # Endpoints 名称使用 batch name (sandbox-{user_id})，与 registry-init 一致
         batch_name = f"sandbox-{user_id}"
         try:
             body = client.V1Endpoints(
@@ -87,13 +66,13 @@ class SandboxRouter:
                     annotations={"last_seen": str(int(time.time()))}
                 )
             )
-            self.core_v1.patch_endpoints(
+            self._core_v1.patch_endpoints(
                 name=batch_name,
                 namespace=K8S_NAMESPACE,
                 body=body
             )
         except Exception:
-            pass  # 静默失败，不阻塞路由
+            pass
 
     def create_sandbox(self, user_id: str) -> bool:
         """创建 BatchSandbox（幂等：已存在时返回 True）"""
@@ -117,7 +96,7 @@ class SandboxRouter:
         }
 
         try:
-            self.sandbox_v1.create_namespaced_custom_object(
+            self._sandbox_v1.create_namespaced_custom_object(
                 group="sandbox.opensandbox.io",
                 version="v1alpha1",
                 namespace=K8S_NAMESPACE,
@@ -126,7 +105,7 @@ class SandboxRouter:
             )
             return True
         except ApiException as e:
-            if e.status == 409:  # Already exists - idempotent
+            if e.status == 409:
                 return True
             print(f"[SandboxRouter] Failed to create BatchSandbox: {e}")
             return False
@@ -145,7 +124,6 @@ class SandboxRouter:
         """获取或创建沙箱，返回沙箱 URL"""
         url = self.get_sandbox_url(user_id)
         if url:
-            # 更新 last_seen annotation
             self._update_endpoint_timestamp(user_id)
             return url
 
@@ -158,7 +136,7 @@ class SandboxRouter:
         """检查沙箱池是否已满。满返回 True，未满返回 False."""
         pool_name = os.getenv("SANDBOX_POOL_NAME", "hermes-sandbox-pool")
         try:
-            pool = self.sandbox_v1.get_namespaced_custom_object(
+            pool = self._sandbox_v1.get_namespaced_custom_object(
                 group="sandbox.opensandbox.io",
                 version="v1alpha1",
                 namespace=K8S_NAMESPACE,

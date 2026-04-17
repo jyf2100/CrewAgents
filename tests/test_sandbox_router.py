@@ -5,59 +5,51 @@ from gateway.sandbox_router import SandboxRouter
 
 class TestSandboxRouter:
     def setup_method(self):
-        self.router = SandboxRouter()
+        with patch('gateway.sandbox_router.config'):
+            self.router = SandboxRouter()
+        self.mock_sandbox_v1 = MagicMock()
+        self.mock_core_v1 = MagicMock()
+        self.router._sandbox_v1 = self.mock_sandbox_v1
+        self.router._core_v1 = self.mock_core_v1
 
     def test_get_sandbox_url_found(self):
-        """BatchSandbox 存在时通过 Pod IP 返回正确 URL"""
-        mock_batch = MagicMock()
-        mock_batch.metadata.name = "sandbox-user_123"
-
-        mock_bs_list = {"items": [mock_batch]}
-
-        mock_pod = MagicMock()
-        mock_pod.status.pod_ip = "10.244.1.45"
-
-        mock_sandbox_v1 = MagicMock()
-        mock_sandbox_v1.list_namespaced_custom_object.return_value = mock_bs_list
-        self.router._sandbox_v1 = mock_sandbox_v1
-
-        mock_core_v1 = MagicMock()
-        mock_core_v1.read_namespaced_pod.return_value = mock_pod
-        self.router._core_v1 = mock_core_v1
+        """BatchSandbox endpoints 注解中有 Pod IP 时返回正确 URL"""
+        mock_bs = {
+            "metadata": {
+                "annotations": {
+                    "sandbox.opensandbox.io/endpoints": '["10.244.1.45"]'
+                }
+            }
+        }
+        self.mock_sandbox_v1.get_namespaced_custom_object.return_value = mock_bs
 
         url = self.router.get_sandbox_url("user_123")
         assert url == "http://10.244.1.45:8642"
-        mock_sandbox_v1.list_namespaced_custom_object.assert_called_once()
-        mock_core_v1.read_namespaced_pod.assert_called_once()
+        self.mock_sandbox_v1.get_namespaced_custom_object.assert_called_once_with(
+            group="sandbox.opensandbox.io",
+            version="v1alpha1",
+            namespace="hermes-agent",
+            plural="batchsandboxes",
+            name="sandbox-user_123"
+        )
 
     def test_get_sandbox_url_not_found(self):
         """BatchSandbox 不存在时返回 None"""
         from kubernetes.client.rest import ApiException
 
-        mock_sandbox_v1 = MagicMock()
-        mock_sandbox_v1.list_namespaced_custom_object.return_value = {"items": []}
-        self.router._sandbox_v1 = mock_sandbox_v1
+        self.mock_sandbox_v1.get_namespaced_custom_object.side_effect = ApiException(status=404)
 
         url = self.router.get_sandbox_url("user_123")
         assert url is None
 
     def test_get_sandbox_url_pod_not_ready(self):
-        """Pod IP 未分配时返回 None"""
-        mock_batch = MagicMock()
-        mock_batch.metadata.name = "sandbox-user_123"
-
-        mock_pod = MagicMock()
-        mock_pod.status.pod_ip = None
-
-        mock_bs_list = {"items": [mock_batch]}
-
-        mock_sandbox_v1 = MagicMock()
-        mock_sandbox_v1.list_namespaced_custom_object.return_value = mock_bs_list
-        self.router._sandbox_v1 = mock_sandbox_v1
-
-        mock_core_v1 = MagicMock()
-        mock_core_v1.read_namespaced_pod.return_value = mock_pod
-        self.router._core_v1 = mock_core_v1
+        """endpoints 注解为空时返回 None（Pod 尚未就绪）"""
+        mock_bs = {
+            "metadata": {
+                "annotations": {}
+            }
+        }
+        self.mock_sandbox_v1.get_namespaced_custom_object.return_value = mock_bs
 
         url = self.router.get_sandbox_url("user_123")
         assert url is None
@@ -73,9 +65,7 @@ class TestSandboxRouter:
         """create_sandbox 对已存在的沙箱返回 True（幂等）"""
         from kubernetes.client.rest import ApiException
 
-        mock_sandbox_v1 = MagicMock()
-        mock_sandbox_v1.create_namespaced_custom_object.side_effect = ApiException(status=409)
-        self.router._sandbox_v1 = mock_sandbox_v1
+        self.mock_sandbox_v1.create_namespaced_custom_object.side_effect = ApiException(status=409)
 
         result = self.router.create_sandbox("alice")
         assert result is True
@@ -87,9 +77,7 @@ class TestSandboxRouter:
             "spec": {"capacitySpec": {"poolMax": 30}}
         }
 
-        mock_sandbox_v1 = MagicMock()
-        mock_sandbox_v1.get_namespaced_custom_object.return_value = mock_pool
-        self.router._sandbox_v1 = mock_sandbox_v1
+        self.mock_sandbox_v1.get_namespaced_custom_object.return_value = mock_pool
 
         result = self.router.is_pool_full()
         assert result is True
@@ -101,9 +89,7 @@ class TestSandboxRouter:
             "spec": {"capacitySpec": {"poolMax": 30}}
         }
 
-        mock_sandbox_v1 = MagicMock()
-        mock_sandbox_v1.get_namespaced_custom_object.return_value = mock_pool
-        self.router._sandbox_v1 = mock_sandbox_v1
+        self.mock_sandbox_v1.get_namespaced_custom_object.return_value = mock_pool
 
         result = self.router.is_pool_full()
         assert result is False
