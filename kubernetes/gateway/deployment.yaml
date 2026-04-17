@@ -4,32 +4,24 @@ metadata:
   name: hermes-gateway
   namespace: hermes-agent
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: hermes-gateway
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
   template:
     metadata:
       labels:
         app: hermes-gateway
     spec:
       serviceAccountName: hermes-gateway
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
       containers:
         - name: gateway
-          image: nousresearch/hermes-agent:v0.8.0
+          image: nousresearch/hermes-agent:latest
           imagePullPolicy: IfNotPresent
-          command: ["hermes", "gateway"]
+          command: ["bash", "-c", "uv pip install --system --break-system-packages 'hermes-agent[web]' -i https://pypi.tuna.tsinghua.edu.cn/simple && hermes gateway & python3 -m hermes_cli.main dashboard --host 0.0.0.0 --port 9119 --insecure & wait"]
           ports:
             - containerPort: 8642
+            - containerPort: 9119
           env:
             - name: API_SERVER_ENABLED
               value: "true"
@@ -39,6 +31,12 @@ spec:
               value: "8642"
             - name: GATEWAY_ALLOW_ALL_USERS
               value: "true"
+            - name: K8S_NAMESPACE
+              value: "hermes-agent"
+            - name: SANDBOX_POOL_NAME
+              value: "hermes-sandbox-pool"
+            - name: SANDBOX_TTL_MINUTES
+              value: "30"
             - name: DB_HOST
               value: "postgres.hermes-agent.svc.cluster.local"
             - name: DB_NAME
@@ -53,45 +51,34 @@ spec:
                 secretKeyRef:
                   name: hermes-db-secret
                   key: password
-            - name: SANDBOX_TTL_MINUTES
-              value: "30"
           resources:
             requests:
               cpu: 250m
-              memory: 256Mi
-            limits:
-              cpu: 500m
               memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
           readinessProbe:
             httpGet:
               path: /health
               port: 8642
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 3
           livenessProbe:
             httpGet:
               path: /health
               port: 8642
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 20
             timeoutSeconds: 5
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app: hermes-gateway
-                topologyKey: kubernetes.io/hostname
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: topology.kubernetes.io/zone
-          whenUnsatisfiable: ScheduleAnyway
-          labelSelector:
-            matchLabels:
-              app: hermes-gateway
+          volumeMounts:
+            - name: hermes-data
+              mountPath: /opt/data
+      volumes:
+        - name: hermes-data
+          persistentVolumeClaim:
+            claimName: hermes-data-pvc
 ---
 apiVersion: v1
 kind: Service
@@ -101,7 +88,11 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 8642
+    - name: api
+      port: 8642
       targetPort: 8642
+    - name: dashboard
+      port: 9119
+      targetPort: 9119
   selector:
     app: hermes-gateway
