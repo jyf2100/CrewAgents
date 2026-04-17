@@ -2,7 +2,7 @@
 gateway/sandbox_router.py: 沙箱发现 + 路由逻辑。
 
 提供:
-- SandboxRouter.get_sandbox_url(user_id) -> str  # 通过 BatchSandbox label selector 获取 pod IP
+- SandboxRouter.get_sandbox_url(user_id) -> str  # 通过 BatchSandbox endpoints 注解获取 Pod IP
 - SandboxRouter.is_pool_full() -> bool            # 检查池是否满载
 - SandboxRouter.create_sandbox(user_id) -> bool   # 创建沙箱（幂等）
 - SandboxRouter.wait_for_sandbox(user_id) -> str  # 等待沙箱就绪
@@ -75,7 +75,7 @@ class SandboxRouter:
         return expire.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def _update_endpoint_timestamp(self, user_id: str):
-        """续期 BatchSandbox expireTime（每次请求续期 30 分钟）"""
+        """续期 BatchSandbox expireTime，时长由 SANDBOX_TTL_MINUTES 环境变量控制"""
         batch_name = self._batch_name(user_id)
         new_expire = self._get_expire_time(SANDBOX_TTL_MINUTES)
         try:
@@ -140,6 +140,7 @@ class SandboxRouter:
             if url:
                 return url
             time.sleep(2)
+        logger.warning("[SandboxRouter] Timed out waiting for sandbox %s after %ds", self._batch_name(user_id), timeout)
         return None
 
     def get_or_create_sandbox(self, user_id: str) -> Optional[str]:
@@ -158,7 +159,7 @@ class SandboxRouter:
         return url
 
     def is_pool_full(self) -> bool:
-        """检查沙箱池是否已满。满返回 True，未满返回 False."""
+        """检查沙箱池是否已满。满载或 API 异常时返回 True（fail-closed），未满返回 False。"""
         pool_name = os.getenv("SANDBOX_POOL_NAME", "hermes-sandbox-pool")
         try:
             pool = self._sandbox_v1.get_namespaced_custom_object(
