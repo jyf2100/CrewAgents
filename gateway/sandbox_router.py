@@ -55,22 +55,29 @@ class SandboxRouter:
         except Exception:
             return None
 
+    def _get_expire_time(self, minutes: int) -> str:
+        """计算 expireTime（ISO 8601 UTC）"""
+        expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+        return expire.strftime("%Y-%m-%dT%H:%M:%SZ")
+
     def _update_endpoint_timestamp(self, user_id: str):
-        """更新 Endpoints 的 last_seen timestamp annotation"""
+        """续期 BatchSandbox expireTime（每次请求续期 30 分钟）"""
         batch_name = f"sandbox-{user_id}"
+        new_expire = self._get_expire_time(SANDBOX_TTL_MINUTES)
         try:
-            body = client.V1Endpoints(
-                metadata=client.V1ObjectMeta(
-                    name=batch_name,
-                    namespace=K8S_NAMESPACE,
-                    annotations={"last_seen": str(int(time.time()))}
-                )
-            )
-            self._core_v1.patch_endpoints(
-                name=batch_name,
+            body = {"spec": {"expireTime": new_expire}}
+            self._sandbox_v1.patch_namespaced_custom_object(
+                group="sandbox.opensandbox.io",
+                version="v1alpha1",
                 namespace=K8S_NAMESPACE,
+                plural="batchsandboxes",
+                name=batch_name,
                 body=body
             )
+        except ApiException as e:
+            if e.status == 404:
+                return
+            print(f"[SandboxRouter] Failed to renew expireTime: {e}")
         except Exception:
             pass
 
@@ -91,7 +98,8 @@ class SandboxRouter:
             },
             "spec": {
                 "poolRef": pool_name,
-                "replicas": 1
+                "replicas": 1,
+                "expireTime": self._get_expire_time(SANDBOX_TTL_MINUTES)
             }
         }
 

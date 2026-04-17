@@ -93,3 +93,37 @@ class TestSandboxRouter:
 
         result = self.router.is_pool_full()
         assert result is False
+
+    def test_create_sandbox_with_expire_time(self):
+        """create_sandbox 在 body 中设置 expireTime"""
+        self.mock_sandbox_v1.create_namespaced_custom_object.return_value = {}
+
+        result = self.router.create_sandbox("alice")
+        assert result is True
+
+        call_args = self.mock_sandbox_v1.create_namespaced_custom_object.call_args
+        body = call_args[1]["body"]
+        assert "expireTime" in body["spec"]
+        assert body["spec"]["poolRef"] == "hermes-sandbox-pool"
+        assert body["spec"]["replicas"] == 1
+
+    def test_renew_expire_time(self):
+        """_update_endpoint_timestamp 通过 patch 续期 expireTime"""
+        self.mock_sandbox_v1.patch_namespaced_custom_object.return_value = {}
+
+        self.router._update_endpoint_timestamp("alice")
+
+        call_args = self.mock_sandbox_v1.patch_namespaced_custom_object.call_args
+        assert call_args[1]["name"] == "sandbox-alice"
+        body = call_args[1]["body"]
+        assert "expireTime" in body["spec"]
+        self.mock_sandbox_v1.patch_namespaced_custom_object.assert_called_once()
+
+    def test_renew_expire_time_404_handled(self):
+        """续期时 BatchSandbox 已被删除（404）不抛异常"""
+        from kubernetes.client.rest import ApiException
+
+        self.mock_sandbox_v1.patch_namespaced_custom_object.side_effect = ApiException(status=404)
+
+        # 不应抛异常
+        self.router._update_endpoint_timestamp("alice")
