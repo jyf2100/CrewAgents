@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import Optional
 
 import kubernetes.client
@@ -155,7 +156,7 @@ class K8sClient:
     async def add_ingress_path(self, path: str, service_name: str, service_port: int) -> None:
         async with self._ingress_lock:
             ingress_name = "hermes-ingress"
-            ingress = await asyncio.to_thread(
+            ingress = await self._k8s_call(
                 self.networking_api.read_namespaced_ingress,
                 name=ingress_name, namespace=self.namespace,
             )
@@ -176,7 +177,7 @@ class K8sClient:
                 if p.path and p.path.startswith(path):
                     raise ValueError(f"Path {path} already exists in ingress")
             paths.append(new_path_rule)
-            await asyncio.to_thread(
+            await self._k8s_call(
                 self.networking_api.replace_namespaced_ingress,
                 name=ingress_name, namespace=self.namespace, body=ingress,
             )
@@ -184,7 +185,7 @@ class K8sClient:
     async def remove_ingress_path(self, path_prefix: str) -> None:
         async with self._ingress_lock:
             ingress_name = "hermes-ingress"
-            ingress = await asyncio.to_thread(
+            ingress = await self._k8s_call(
                 self.networking_api.read_namespaced_ingress,
                 name=ingress_name, namespace=self.namespace,
             )
@@ -197,7 +198,7 @@ class K8sClient:
                 if not (p.path and p.path.startswith(path_prefix))
             ]
             if len(ingress.spec.rules[0].http.paths) < original_len:
-                await asyncio.to_thread(
+                await self._k8s_call(
                     self.networking_api.replace_namespaced_ingress,
                     name=ingress_name, namespace=self.namespace, body=ingress,
                 )
@@ -205,8 +206,8 @@ class K8sClient:
     # Wait for deployment ready
     async def wait_deployment_ready(self, name: str, timeout_seconds: int = 300,
                                      poll_interval_seconds: int = 5) -> bool:
-        deadline = asyncio.get_event_loop().time() + timeout_seconds
-        while asyncio.get_event_loop().time() < deadline:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
             dep = await asyncio.to_thread(
                 self.apps_api.read_namespaced_deployment,
                 name=name, namespace=self.namespace,
@@ -215,6 +216,20 @@ class K8sClient:
                 return True
             await asyncio.sleep(poll_interval_seconds)
         return False
+
+    # List resources (public wrappers)
+    async def list_deployments(self) -> list:
+        """List all deployments in the namespace."""
+        result = await self._k8s_call(
+            self.apps_api.list_namespaced_deployment,
+            namespace=self.namespace,
+        )
+        return result.items
+
+    async def list_nodes(self) -> list:
+        """List all cluster nodes."""
+        result = await self._k8s_call(self.core_api.list_node)
+        return result.items
 
     # Metrics (optional, graceful fallback)
     async def get_pod_metrics(self, pod_name: str) -> Optional[dict]:

@@ -1,81 +1,21 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AgentListItem } from "../lib/admin-api";
-import { adminApi, AdminApiError } from "../lib/admin-api";
+import { adminApi, AdminApiError, getAdminKey } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
-import type { Translations } from "../i18n/zh";
+import {
+  formatBytes,
+  formatMillicores,
+  getBarColor,
+  statusDotColor,
+  statusLabel,
+  statusOrder,
+} from "../lib/utils";
+import { showToast } from "../lib/toast";
+import { ConfirmDialog } from "./ConfirmDialog";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function formatBytes(bytes: number | null): string {
-  if (bytes === null || bytes === 0) return "0";
-  const units = ["", "K", "M", "Gi", "Ti"];
-  let idx = 0;
-  let val = bytes;
-  while (val >= 1024 && idx < units.length - 1) {
-    val /= 1024;
-    idx++;
-  }
-  return idx === 0 ? `${val}` : `${val.toFixed(val < 10 ? 1 : 0)}${units[idx]}`;
-}
-
-function formatMillicores(cores: number | null): string {
-  if (cores === null) return "-";
-  const milli = Math.round(cores * 1000);
-  return `${milli}m`;
-}
-
-function getBarColor(pct: number): string {
-  if (pct >= 90) return "bg-red-500";
-  if (pct >= 70) return "bg-yellow-500";
-  return "bg-green-500";
-}
-
-const STATUS_PRIORITY: Record<string, number> = {
-  failed: 0,
-  starting: 1,
-  stopped: 2,
-  running: 3,
-  unknown: 4,
-};
-
-function statusOrder(status: string): number {
-  return STATUS_PRIORITY[status] ?? 5;
-}
-
-function statusDotColor(status: string): string {
-  switch (status) {
-    case "running":
-      return "bg-green-500";
-    case "failed":
-      return "bg-red-500";
-    case "starting":
-      return "bg-yellow-500";
-    case "stopped":
-      return "bg-gray-400";
-    default:
-      return "bg-gray-300";
-  }
-}
-
-function statusLabel(status: string, t: Translations): string {
-  switch (status) {
-    case "running":
-      return t.statusRunning;
-    case "failed":
-      return t.statusFailed;
-    case "starting":
-      return t.statusPending;
-    case "stopped":
-      return t.statusStopped;
-    default:
-      return t.statusUnknown;
-  }
-}
-
-export { statusOrder, formatBytes, formatMillicores };
+// Re-export statusOrder for DashboardPage
+export { statusOrder };
 
 // ---------------------------------------------------------------------------
 // AgentCard component
@@ -107,28 +47,12 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
     }
   }, [menuOpen]);
 
-  // Resource computation
-  const cpuLimitMillicores =
-    agent.resources.cpu_limit_millicores ?? agent.resources.cpu_cores !== null
-      ? Math.round((agent.resources.cpu_cores ?? 0) * 1000)
-      : null;
-  const cpuUsageMillicores =
-    cpuLimitMillicores !== null
-      ? Math.round(
-          cpuLimitMillicores *
-            (agent.resources.cpu_cores !== null && cpuLimitMillicores > 0
-              ? (agent.resources.cpu_cores * 1000) / cpuLimitMillicores
-              : 0)
-        )
-      : null;
-
-  // cpu_usage is fraction of limit: use cpu_cores / (cpu_limit_millicores/1000)
-  const cpuFraction =
-    agent.resources.cpu_limit_millicores !== null &&
-    agent.resources.cpu_limit_millicores > 0 &&
-    agent.resources.cpu_cores !== null
-      ? (agent.resources.cpu_cores * 1000) / agent.resources.cpu_limit_millicores
-      : null;
+  // Resource computation - simplified CPU
+  const cpuCores = agent.resources.cpu_cores ?? 0;
+  const cpuLimitCores =
+    (agent.resources.cpu_limit_millicores ?? cpuCores * 1000) / 1000;
+  const cpuPercent =
+    cpuLimitCores > 0 ? Math.round((cpuCores / cpuLimitCores) * 100) : 0;
 
   const memLimit = agent.resources.memory_limit_bytes;
   const memUsage = agent.resources.memory_bytes;
@@ -137,8 +61,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
       ? memUsage / memLimit
       : null;
 
-  const cpuPct =
-    cpuFraction !== null ? Math.min(Math.round(cpuFraction * 100), 100) : null;
+  const cpuPct = Math.min(cpuPercent, 100);
   const memPct =
     memFraction !== null ? Math.min(Math.round(memFraction * 100), 100) : null;
 
@@ -146,11 +69,12 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
     setActionLoading(true);
     try {
       await action();
-      toast(`${label} - OK`);
+      showToast(`${label} - OK`);
       onActionDone();
     } catch (err) {
-      toast(
-        `${label} - ${err instanceof AdminApiError ? err.detail : t.errorGeneric}`
+      showToast(
+        `${label} - ${err instanceof AdminApiError ? err.detail : t.errorGeneric}`,
+        "error"
       );
     } finally {
       setActionLoading(false);
@@ -158,17 +82,23 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
     }
   }
 
-  function toast(msg: string) {
-    // Simple toast via a temporary element
-    const el = document.createElement("div");
-    el.className =
-      "fixed bottom-4 right-4 z-50 rounded-md border border-border bg-card px-4 py-2 text-sm shadow-lg transition-opacity";
-    el.textContent = msg;
-    document.body.appendChild(el);
-    setTimeout(() => {
-      el.style.opacity = "0";
-      setTimeout(() => el.remove(), 300);
-    }, 2500);
+  async function handleBackup() {
+    try {
+      const resp = await adminApi.backupAgent(agent.id);
+      // Build download URL with admin key for authentication
+      const downloadUrl = resp.download_url.includes("?")
+        ? `${resp.download_url}&admin_key=${encodeURIComponent(getAdminKey())}`
+        : `${resp.download_url}?admin_key=${encodeURIComponent(getAdminKey())}`;
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = resp.filename || `${agent.name}-backup.tar.gz`;
+      a.click();
+    } catch (err) {
+      showToast(
+        `${t.backup} - ${err instanceof AdminApiError ? err.detail : t.errorGeneric}`,
+        "error"
+      );
+    }
   }
 
   async function handleDelete() {
@@ -246,20 +176,10 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
               <button
                 className="w-full text-left px-3 py-1.5 hover:bg-accent disabled:opacity-50"
                 disabled={actionLoading}
-                onClick={() =>
-                  doAction(
-                    () =>
-                      adminApi.backupAgent(agent.id).then((blob) => {
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = `${agent.name}-backup.tar.gz`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                      }),
-                    t.backup
-                  )
-                }
+                onClick={() => {
+                  setMenuOpen(false);
+                  handleBackup();
+                }}
               >
                 {t.backup}
               </button>
@@ -283,15 +203,19 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
             <span>{t.cpuUsage}</span>
             <span>
-              {cpuUsageMillicores !== null ? formatMillicores(cpuUsageMillicores / 1000) : "-"}
+              {agent.resources.cpu_cores !== null
+                ? formatMillicores(agent.resources.cpu_cores)
+                : "-"}
               {" / "}
-              {cpuLimitMillicores !== null ? formatMillicores(cpuLimitMillicores / 1000) : "-"}
+              {agent.resources.cpu_limit_millicores !== null
+                ? formatMillicores(agent.resources.cpu_limit_millicores / 1000)
+                : "-"}
             </span>
           </div>
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${cpuPct !== null ? getBarColor(cpuPct) : "bg-muted"}`}
-              style={{ width: `${cpuPct ?? 0}%` }}
+              className={`h-full rounded-full transition-all ${getBarColor(cpuPct)}`}
+              style={{ width: `${cpuPct}%` }}
             />
           </div>
         </div>
@@ -334,36 +258,17 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
       </div>
 
       {/* Delete confirm dialog */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setConfirmDelete(false)}
-          />
-          <div className="relative bg-background border border-border rounded-lg shadow-lg max-w-md w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold mb-2">{t.delete}</h3>
-            <p className="text-sm text-muted-foreground mb-6">
-              {t.errorDeleteConfirm}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="h-9 px-4 text-sm border border-border hover:bg-accent rounded"
-                disabled={actionLoading}
-              >
-                {t.cancel}
-              </button>
-              <button
-                onClick={handleDelete}
-                className="h-9 px-4 text-sm rounded bg-destructive text-white hover:bg-destructive/90"
-                disabled={actionLoading}
-              >
-                {actionLoading ? "..." : t.delete}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirmDelete}
+        title={t.delete}
+        message={t.errorDeleteConfirm}
+        confirmLabel={t.delete}
+        cancelLabel={t.cancel}
+        variant="destructive"
+        loading={actionLoading}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </>
   );
 }

@@ -218,6 +218,31 @@ export interface Translations {
   copied: string;
   version: string;
   documentation: string;
+
+  // Admin-specific
+  validationAdminKeyLength: string;
+  keyMismatch: string;
+  adminKeyChanged: string;
+  applySuccess: string;
+  settingsSaved: string;
+  soulSaved: string;
+  confirmKeyChange: string;
+  confirmNewKey: string;
+  confirmNewKeyPlaceholder: string;
+  statusStarting: string;
+  showHide: string;
+  pause: string;
+  resume: string;
+  filterLogs: string;
+  invalidCpuFormat: string;
+  invalidMemoryFormat: string;
+  quickStats: string;
+  connectedPlatforms: string;
+  dataFromHealth: string;
+  replicas: string;
+  platform: string;
+  hide: string;
+  show: string;
 }
 
 export const zh: Translations = {
@@ -460,4 +485,29 @@ export const zh: Translations = {
   copied: "已复制",
   version: "版本",
   documentation: "文档",
+
+  // Admin-specific
+  validationAdminKeyLength: "密钥至少需要8个字符",
+  keyMismatch: "两次输入的密钥不一致",
+  adminKeyChanged: "Admin Key 已更改，请使用新密钥重新登录",
+  applySuccess: "配置已应用，代理将重启",
+  settingsSaved: "默认资源配置已保存",
+  soulSaved: "SOUL.md 已保存",
+  confirmKeyChange: "更改 Admin Key 后需要使用新密钥重新验证。确定继续？",
+  confirmNewKey: "确认新密钥",
+  confirmNewKeyPlaceholder: "再次输入新密钥",
+  statusStarting: "启动中",
+  showHide: "显示/隐藏",
+  pause: "暂停",
+  resume: "继续",
+  filterLogs: "过滤日志...",
+  invalidCpuFormat: "CPU 格式无效 (例如 1000m)",
+  invalidMemoryFormat: "内存格式无效 (例如 512Mi, 1Gi)",
+  quickStats: "快速统计",
+  connectedPlatforms: "已连接平台",
+  dataFromHealth: "来自 /health 的数据",
+  replicas: "副本",
+  platform: "平台",
+  hide: "隐藏",
+  show: "显示",
 };

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type {
   AgentDetail,
@@ -9,6 +9,14 @@ import type {
 import { adminApi, AdminApiError } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import {
+  formatBytes,
+  formatMillicores,
+  getBarColor,
+  statusDotColor,
+  statusLabel,
+} from "../lib/utils";
+import { showToast } from "../lib/toast";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,72 +31,6 @@ function parseAgentId(raw: string): number {
   const n = parseInt(raw, 10);
   if (isNaN(n)) throw new Error(`Invalid agent id: ${raw}`);
   return n;
-}
-
-function formatBytes(bytes: number | null): string {
-  if (bytes === null || bytes === 0) return "0";
-  const units = ["", "K", "M", "Gi", "Ti"];
-  let idx = 0;
-  let val = bytes;
-  while (val >= 1024 && idx < units.length - 1) {
-    val /= 1024;
-    idx++;
-  }
-  return idx === 0 ? `${val}` : `${val.toFixed(val < 10 ? 1 : 0)}${units[idx]}`;
-}
-
-function formatMillicores(cores: number | null): string {
-  if (cores === null) return "-";
-  const milli = Math.round(cores * 1000);
-  return `${milli}m`;
-}
-
-function getBarColor(pct: number): string {
-  if (pct >= 90) return "bg-red-500";
-  if (pct >= 70) return "bg-yellow-500";
-  return "bg-green-500";
-}
-
-function statusDotColor(status: string): string {
-  switch (status) {
-    case "running":
-      return "bg-green-500";
-    case "failed":
-      return "bg-red-500";
-    case "starting":
-      return "bg-yellow-500";
-    case "stopped":
-      return "bg-gray-400";
-    default:
-      return "bg-gray-300";
-  }
-}
-
-function statusLabel(status: string, t: ReturnType<typeof useI18n>["t"]): string {
-  switch (status) {
-    case "running":
-      return t.statusRunning;
-    case "failed":
-      return t.statusFailed;
-    case "starting":
-      return t.statusPending;
-    case "stopped":
-      return t.statusStopped;
-    default:
-      return t.statusUnknown;
-  }
-}
-
-function toast(msg: string) {
-  const el = document.createElement("div");
-  el.className =
-    "fixed bottom-4 right-4 z-50 rounded-md border border-border bg-card px-4 py-2 text-sm shadow-lg transition-opacity";
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => {
-    el.style.opacity = "0";
-    setTimeout(() => el.remove(), 300);
-  }, 2500);
 }
 
 function logLineColor(line: string): string {
@@ -167,11 +109,12 @@ export function AgentDetailPage() {
     setActionLoading(label);
     try {
       await action();
-      toast(`${label} - OK`);
+      showToast(`${label} - OK`);
       await loadAgent();
     } catch (err) {
-      toast(
-        `${label} - ${err instanceof AdminApiError ? err.detail : t.errorGeneric}`
+      showToast(
+        `${label} - ${err instanceof AdminApiError ? err.detail : t.errorGeneric}`,
+        "error"
       );
     } finally {
       setActionLoading(null);
@@ -373,11 +316,11 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
     <div className="space-y-6">
       {/* Status cards row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatusCard label="Pod IP" value={agent.pods[0]?.pod_ip ?? "-"} />
+        <StatusCard label={t.podIp} value={agent.pods[0]?.pod_ip ?? "-"} />
         <StatusCard label={t.podNode} value={agent.pods[0]?.node_name ?? "-"} />
         <StatusCard label={t.agentAge} value={agent.age_human} />
         <StatusCard
-          label="Replicas"
+          label={t.replicas}
           value={`${runningPods}/${agent.pods.length}`}
         />
       </div>
@@ -462,13 +405,13 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
 
       {/* ConnectedPlatforms placeholder */}
       <div className="rounded-lg border border-border bg-card p-4">
-        <h3 className="text-sm font-medium mb-1">Connected Platforms</h3>
-        <p className="text-xs text-muted-foreground">Data from /health</p>
+        <h3 className="text-sm font-medium mb-1">{t.connectedPlatforms}</h3>
+        <p className="text-xs text-muted-foreground">{t.dataFromHealth}</p>
       </div>
 
       {/* Metadata */}
       <div className="rounded-lg border border-border bg-card p-4">
-        <h3 className="text-sm font-medium mb-2">Quick Stats</h3>
+        <h3 className="text-sm font-medium mb-2">{t.quickStats}</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
           <div>
             <span className="text-xs text-muted-foreground">{t.agentId}:</span> {agent.id}
@@ -555,7 +498,7 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
     adminApi
       .getAgentEnv(agentId)
       .then((res) => setVars(res.variables))
-      .catch(() => toast(t.errorLoadFailed))
+      .catch(() => showToast(t.errorLoadFailed, "error"))
       .finally(() => setLoading(false));
   }, [agentId, t]);
 
@@ -582,10 +525,11 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
     setApplying(true);
     try {
       await adminApi.updateAgentEnv(agentId, vars);
-      toast("配置已应用，代理将重启");
+      showToast(t.applySuccess);
     } catch (err) {
-      toast(
-        err instanceof AdminApiError ? err.detail : t.errorSaveFailed
+      showToast(
+        err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
+        "error"
       );
     } finally {
       setApplying(false);
@@ -627,7 +571,7 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
                 }
                 className="h-9 px-2 text-xs border border-border hover:bg-accent rounded"
               >
-                {showValues[v.key] ? "Hide" : "Show"}
+                {showValues[v.key] ? t.hide : t.show}
               </button>
             )}
             <button
@@ -670,7 +614,7 @@ function YamlEditor({ agentId }: { agentId: number }) {
     adminApi
       .getAgentConfig(agentId)
       .then((res) => setContent(res.content))
-      .catch(() => toast(t.errorLoadFailed))
+      .catch(() => showToast(t.errorLoadFailed, "error"))
       .finally(() => setLoading(false));
   }, [agentId, t]);
 
@@ -678,10 +622,11 @@ function YamlEditor({ agentId }: { agentId: number }) {
     setApplying(true);
     try {
       await adminApi.updateAgentConfig(agentId, content);
-      toast("配置已应用，代理将重启");
+      showToast(t.applySuccess);
     } catch (err) {
-      toast(
-        err instanceof AdminApiError ? err.detail : t.errorSaveFailed
+      showToast(
+        err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
+        "error"
       );
     } finally {
       setApplying(false);
@@ -725,7 +670,7 @@ function SoulEditor({ agentId }: { agentId: number }) {
     adminApi
       .getAgentSoul(agentId)
       .then((res) => setContent(res.content))
-      .catch(() => toast(t.errorLoadFailed))
+      .catch(() => showToast(t.errorLoadFailed, "error"))
       .finally(() => setLoading(false));
   }, [agentId, t]);
 
@@ -733,10 +678,11 @@ function SoulEditor({ agentId }: { agentId: number }) {
     setApplying(true);
     try {
       await adminApi.updateAgentSoul(agentId, content);
-      toast("SOUL.md 已保存");
+      showToast(t.soulSaved);
     } catch (err) {
-      toast(
-        err instanceof AdminApiError ? err.detail : t.errorSaveFailed
+      showToast(
+        err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
+        "error"
       );
     } finally {
       setApplying(false);
@@ -782,6 +728,7 @@ function LogsTab({ agentId }: { agentId: number }) {
   const esRef = useRef<EventSource | null>(null);
   const retriesRef = useRef(0);
   const pausedRef = useRef(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Keep ref in sync
   useEffect(() => {
@@ -826,9 +773,10 @@ function LogsTab({ agentId }: { agentId: number }) {
           if (retriesRef.current < 5 && !cancelled) {
             const delay = Math.min(1000 * Math.pow(2, retriesRef.current), 30000);
             retriesRef.current++;
-            setTimeout(() => {
+            const tid = setTimeout(() => {
               if (!cancelled) connect();
             }, delay);
+            timeoutRef.current.push(tid);
           }
         };
       } catch {
@@ -840,9 +788,10 @@ function LogsTab({ agentId }: { agentId: number }) {
               30000
             );
             retriesRef.current++;
-            setTimeout(() => {
+            const tid = setTimeout(() => {
               if (!cancelled) connect();
             }, delay);
+            timeoutRef.current.push(tid);
           }
         }
       }
@@ -851,6 +800,9 @@ function LogsTab({ agentId }: { agentId: number }) {
     start();
     return () => {
       cancelled = true;
+      // Clear all pending reconnect timeouts
+      timeoutRef.current.forEach(clearTimeout);
+      timeoutRef.current = [];
       esRef.current?.close();
       esRef.current = null;
     };
@@ -868,6 +820,13 @@ function LogsTab({ agentId }: { agentId: number }) {
     }
   }, [lines, paused]);
 
+  // Memoized filtered lines for performance
+  const filteredLines = useMemo(() => {
+    if (!filter) return lines;
+    const lower = filter.toLowerCase();
+    return lines.filter((l) => l.toLowerCase().includes(lower));
+  }, [lines, filter]);
+
   function clearLogs() {
     setLines([]);
   }
@@ -876,15 +835,11 @@ function LogsTab({ agentId }: { agentId: number }) {
     retriesRef.current = 0;
     esRef.current?.close();
     esRef.current = null;
+    timeoutRef.current.forEach(clearTimeout);
+    timeoutRef.current = [];
     setLines([]);
     connect();
   }
-
-  const filteredLines = filter
-    ? lines.filter((l) =>
-        l.toLowerCase().includes(filter.toLowerCase())
-      )
-    : lines;
 
   return (
     <div>
@@ -911,7 +866,7 @@ function LogsTab({ agentId }: { agentId: number }) {
           onClick={() => setPaused(!paused)}
           className="h-8 px-3 text-xs border border-border hover:bg-accent rounded"
         >
-          {paused ? "Resume" : "Pause"}
+          {paused ? t.resume : t.pause}
         </button>
 
         {/* Filter */}
@@ -919,7 +874,7 @@ function LogsTab({ agentId }: { agentId: number }) {
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter logs..."
+          placeholder={t.filterLogs}
           className="h-8 px-3 text-xs border border-border rounded flex-1 max-w-xs"
         />
 
@@ -1165,7 +1120,7 @@ function HealthTab({ agentId }: { agentId: number }) {
       {/* Platform info */}
       {health.platform && (
         <div className="rounded-lg border border-border bg-card p-4">
-          <span className="text-xs text-muted-foreground">Platform:</span>{" "}
+          <span className="text-xs text-muted-foreground">{t.platform}:</span>{" "}
           <span className="text-sm">{health.platform}</span>
         </div>
       )}

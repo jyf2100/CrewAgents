@@ -1,14 +1,9 @@
 import type { ClusterStatus } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
+import { getBarColor } from "../lib/utils";
 
 interface ClusterStatusBarProps {
   cluster: ClusterStatus;
-}
-
-function getBarColor(pct: number): string {
-  if (pct >= 90) return "bg-red-500";
-  if (pct >= 70) return "bg-yellow-500";
-  return "bg-green-500";
 }
 
 export function ClusterStatusBar({ cluster }: ClusterStatusBarProps) {

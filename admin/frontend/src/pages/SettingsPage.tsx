@@ -6,25 +6,7 @@ import type {
 import { adminApi, AdminApiError } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-
-// ---------------------------------------------------------------------------
-// Toast helper
-// ---------------------------------------------------------------------------
-
-function toast(msg: string, variant: "default" | "error" = "default") {
-  const el = document.createElement("div");
-  el.className =
-    "fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-lg transition-opacity " +
-    (variant === "error"
-      ? "border-red-300 bg-red-50 text-red-700"
-      : "border-border bg-card");
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => {
-    el.style.opacity = "0";
-    setTimeout(() => el.remove(), 300);
-  }, 3000);
-}
+import { showToast } from "../lib/toast";
 
 // ---------------------------------------------------------------------------
 // Template tab definitions
@@ -102,7 +84,7 @@ export function SettingsPage() {
         const res = await adminApi.getTemplate(type);
         setTemplateContents((prev) => ({ ...prev, [type]: res.content }));
       } catch {
-        toast(t.errorLoadFailed, "error");
+        showToast(t.errorLoadFailed, "error");
       } finally {
         setTemplateLoading(false);
       }
@@ -118,17 +100,17 @@ export function SettingsPage() {
 
   async function handleChangeKey() {
     if (newKey.length < 8) {
-      toast("密钥至少需要8个字符", "error");
+      showToast(t.validationAdminKeyLength, "error");
       return;
     }
     if (newKey !== confirmKey) {
-      toast("两次输入的密钥不一致", "error");
+      showToast(t.keyMismatch, "error");
       return;
     }
     setChangingKey(true);
     try {
       await adminApi.changeAdminKey(newKey);
-      toast("Admin Key 已更改，请使用新密钥重新登录");
+      showToast(t.adminKeyChanged);
       setShowKeyDialog(false);
       setNewKey("");
       setConfirmKey("");
@@ -138,7 +120,7 @@ export function SettingsPage() {
         window.location.href = "/admin/login";
       }, 1500);
     } catch (err) {
-      toast(
+      showToast(
         err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
         "error"
       );
@@ -158,9 +140,9 @@ export function SettingsPage() {
           memory_limit: memoryLimit,
         },
       });
-      toast("默认资源配置已保存");
+      showToast(t.settingsSaved);
     } catch (err) {
-      toast(
+      showToast(
         err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
         "error"
       );
@@ -176,9 +158,9 @@ export function SettingsPage() {
         templateTab,
         templateContents[templateTab] || ""
       );
-      toast("模板已保存");
+      showToast(t.settingsSaved);
     } catch (err) {
-      toast(
+      showToast(
         err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
         "error"
       );
@@ -277,8 +259,8 @@ export function SettingsPage() {
               </table>
             </div>
             <div className="mt-3 text-xs text-muted-foreground">
-              Namespace: {cluster.namespace} | Agents:{" "}
-              {cluster.running_agents}/{cluster.total_agents} running
+              Namespace: {cluster.namespace} | {t.runningAgents}:{" "}
+              {cluster.running_agents}/{cluster.total_agents}
             </div>
           </SettingsSection>
         )}
@@ -315,13 +297,13 @@ export function SettingsPage() {
               </div>
               <div>
                 <label className="block text-xs text-muted-foreground mb-1">
-                  确认新密钥
+                  {t.confirmNewKey}
                 </label>
                 <input
                   type="password"
                   value={confirmKey}
                   onChange={(e) => setConfirmKey(e.target.value)}
-                  placeholder="再次输入新密钥"
+                  placeholder={t.confirmNewKeyPlaceholder}
                   className="h-9 w-full px-3 text-sm border border-border rounded font-mono"
                 />
               </div>
@@ -431,7 +413,7 @@ export function SettingsPage() {
       <ConfirmDialog
         open={showKeyDialog}
         title={t.changeAdminKey}
-        message="更改 Admin Key 后需要使用新密钥重新验证。确定继续？"
+        message={t.confirmKeyChange}
         confirmLabel={t.confirm}
         cancelLabel={t.cancel}
         variant="destructive"

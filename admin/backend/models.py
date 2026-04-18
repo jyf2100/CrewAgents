@@ -4,6 +4,8 @@ from enum import Enum
 from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator
 
+from constants import PROVIDER_URL_MAP
+
 
 # Enums
 class AgentStatus(str, Enum):
@@ -128,14 +130,7 @@ class LLMConfig(BaseModel):
         if v:
             return v
         provider = info.data.get("provider")
-        defaults = {
-            "openrouter": "https://openrouter.ai/api/v1",
-            "anthropic":  "https://api.anthropic.com/v1",
-            "openai":     "https://api.openai.com/v1",
-            "gemini":     "https://generativelanguage.googleapis.com/v1beta",
-            "zai":        "https://open.bigmodel.cn/api/paas/v4",
-        }
-        return defaults.get(provider)
+        return PROVIDER_URL_MAP.get(provider)
 
 
 class CreateAgentRequest(BaseModel):
@@ -287,11 +282,7 @@ class ActionResponse(BaseModel):
 
 
 # Settings
-class DefaultResourceLimits(BaseModel):
-    cpu_request: str = "250m"
-    cpu_limit: str = "1000m"
-    memory_request: str = "512Mi"
-    memory_limit: str = "1Gi"
+DefaultResourceLimits = ResourceSpec
 
 
 class SettingsResponse(BaseModel):

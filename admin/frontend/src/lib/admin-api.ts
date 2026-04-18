@@ -423,15 +423,11 @@ export const adminApi = {
   },
 
   // -- Agent operations --
-  backupAgent(agentId: number): Promise<Blob> {
+  backupAgent(agentId: number): Promise<BackupResponse> {
     return adminFetch(`/agents/${agentId}/backup`, {
       method: "POST",
-      headers: {
-        Accept: "application/octet-stream",
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify({ include_data: true, include_k8s_yaml: true }),
-    }) as unknown as Promise<Blob>;
+    });
   },
 
   // -- Cluster --

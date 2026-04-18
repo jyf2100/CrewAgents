@@ -2,6 +2,7 @@ import os
 from typing import Optional
 
 from models import ResourceSpec, TemplateResponse, TemplateTypeResponse
+from constants import PROVIDER_URL_MAP
 
 
 class TemplateGenerator:
@@ -65,12 +66,11 @@ class TemplateGenerator:
                            streaming_enabled: bool = True, memory_enabled: bool = True,
                            session_reset_enabled: bool = False) -> str:
         """Generate config.yaml content."""
-        template = self._read_template("config.yaml.template")
-        if not template:
-            return f"""model:
+        resolved_url = base_url or PROVIDER_URL_MAP.get(provider, PROVIDER_URL_MAP["openrouter"])
+        return f"""model:
   default: "{default_model}"
   provider: "{provider}"
-  base_url: "{base_url or 'https://openrouter.ai/api/v1'}"
+  base_url: "{resolved_url}"
 terminal:
   enabled: {str(terminal_enabled).lower()}
 browser:
@@ -82,13 +82,6 @@ memory:
 session_reset:
   enabled: {str(session_reset_enabled).lower()}
 """
-        # Replace placeholders in template
-        result = template
-        result = result.replace('anthropic/claude-sonnet-4-20250514', default_model)
-        result = result.replace('provider: "auto"', f'provider: "{provider}"')
-        if base_url:
-            result = result.replace('base_url: "https://openrouter.ai/api/v1"', f'base_url: "{base_url}"')
-        return result
 
     def render_deployment(self, agent_number: int, secret_name: str,
                           resources: ResourceSpec, namespace: str = "hermes-agent") -> dict:

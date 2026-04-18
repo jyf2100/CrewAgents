@@ -22,8 +22,7 @@ from models import (
 )
 from k8s_client import K8sClient
 from config_manager import ConfigManager
-
-SECRET_PATTERNS = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)", re.IGNORECASE)
+from constants import SECRET_PATTERNS, PROVIDER_URL_MAP, format_age
 
 
 class AgentManager:
@@ -38,12 +37,9 @@ class AgentManager:
 
     # --- List Agents ---
     async def list_agents(self) -> AgentListResponse:
-        deps = await self.k8s._k8s_call(
-            self.k8s.apps_api.list_namespaced_deployment,
-            namespace=self.namespace,
-        )
+        deps = await self.k8s.list_deployments()
         agents = []
-        for dep in deps.items:
+        for dep in deps:
             name = dep.metadata.name
             if not name.startswith("hermes-gateway"):
                 continue
@@ -71,49 +67,17 @@ class AgentManager:
             else:
                 status = AgentStatus.pending
 
-            # Restart count from pods
-            restart_count = 0
-            pods = await self.k8s.get_pods_for_deployment(name)
-            for pod in pods:
-                for cs in (pod.status.container_statuses or []):
-                    restart_count += cs.restart_count
-
-            # Resource usage
-            resources = ResourceUsage()
-            for pod in pods:
-                if pod.status.phase == "Running":
-                    metrics = await self.k8s.get_pod_metrics(pod.metadata.name)
-                    if metrics and "containers" in metrics:
-                        for c in metrics["containers"]:
-                            usage = c.get("usage", {})
-                            cpu = usage.get("cpu", "0")
-                            mem = usage.get("memory", "0")
-                            if cpu.endswith("n"):
-                                resources.cpu_cores = (resources.cpu_cores or 0) + int(cpu[:-1]) / 1e9
-                            elif cpu.endswith("m"):
-                                resources.cpu_cores = (resources.cpu_cores or 0) + int(cpu[:-1]) / 1000
-                            if mem.endswith("Ki"):
-                                resources.memory_bytes = (resources.memory_bytes or 0) + int(mem[:-2]) * 1024
-
             # Age
             created = dep.metadata.creation_timestamp
-            age_human = ""
-            if created:
-                delta = datetime.datetime.now(datetime.timezone.utc) - created
-                if delta.days > 0:
-                    age_human = f"{delta.days}d"
-                elif delta.seconds >= 3600:
-                    age_human = f"{delta.seconds // 3600}h"
-                else:
-                    age_human = f"{delta.seconds // 60}m"
+            age_human = format_age(created)
 
             agents.append(AgentSummary(
                 id=agent_num,
                 name=name,
                 status=status,
                 url_path=f"/agent{agent_num}" if agent_num > 0 else "",
-                resources=resources,
-                restart_count=restart_count,
+                resources=ResourceUsage(),
+                restart_count=0,
                 created_at=created,
                 age_human=age_human,
             ))
@@ -169,15 +133,7 @@ class AgentManager:
             ))
 
         created = dep.metadata.creation_timestamp
-        age_human = ""
-        if created:
-            delta = datetime.datetime.now(datetime.timezone.utc) - created
-            if delta.days > 0:
-                age_human = f"{delta.days}d"
-            elif delta.seconds >= 3600:
-                age_human = f"{delta.seconds // 3600}h"
-            else:
-                age_human = f"{delta.seconds // 60}m"
+        age_human = format_age(created)
 
         return AgentDetailResponse(
             id=agent_id,
@@ -452,15 +408,9 @@ class AgentManager:
             age_human = ""
             if ts:
                 if isinstance(ts, datetime.datetime):
-                    delta = datetime.datetime.now(datetime.timezone.utc) - ts.replace(tzinfo=datetime.timezone.utc)
+                    age_human = format_age(ts)
                 else:
-                    delta = datetime.timedelta(0)
-                if delta.days > 0:
-                    age_human = f"{delta.days}d"
-                elif delta.seconds >= 3600:
-                    age_human = f"{delta.seconds // 3600}h"
-                else:
-                    age_human = f"{delta.seconds // 60}m"
+                    age_human = ""
             events.append(K8sEvent(
                 type=EventType(e.type) if e.type in ("Normal", "Warning") else EventType.normal,
                 reason=e.reason or "",
@@ -570,15 +520,7 @@ class AgentManager:
 
     # --- Test LLM Connection ---
     async def test_llm(self, req: TestLLMRequest) -> TestLLMResponse:
-        defaults = {
-            "openrouter": "https://openrouter.ai/api/v1",
-            "anthropic":  "https://api.anthropic.com/v1",
-            "openai":     "https://api.openai.com/v1",
-            "gemini":     "https://generativelanguage.googleapis.com/v1beta",
-            "zai":        "https://open.bigmodel.cn/api/paas/v4",
-            "custom":     "https://api.example.com/v1",
-        }
-        base_url = req.base_url or defaults.get(req.provider, defaults["openrouter"])
+        base_url = req.base_url or PROVIDER_URL_MAP.get(req.provider, PROVIDER_URL_MAP["openrouter"])
         url = f"{base_url.rstrip('/')}/chat/completions"
         payload = {"model": req.model, "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 5, "temperature": 0}
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {req.api_key}"}
@@ -608,16 +550,19 @@ class AgentManager:
                     error_msg += ": " + (err_data.get("error", {}).get("message", "") or err_data.get("message", "") or body[:200])
                 except Exception:
                     error_msg += ": " + body[:200]
-                return TestLLMResponse(success=False, latency_ms=latency_ms, model_used=req.model, error=error_msg)
+                # Sanitize error to avoid leaking API keys
+                safe_error = re.sub(r'Bearer\s+\S+', 'Bearer ***', error_msg)
+                return TestLLMResponse(success=False, latency_ms=latency_ms, model_used=req.model, error=safe_error)
         except Exception as e:
-            return TestLLMResponse(success=False, latency_ms=round((time.monotonic() - start) * 1000, 1), model_used=req.model, error=str(e))
+            safe_error = re.sub(r'Bearer\s+\S+', 'Bearer ***', str(e))
+            return TestLLMResponse(success=False, latency_ms=round((time.monotonic() - start) * 1000, 1), model_used=req.model, error=safe_error)
 
     # --- Cluster Status ---
     async def get_cluster_status(self) -> ClusterStatusResponse:
         try:
-            nodes = await self.k8s._k8s_call(self.k8s.core_api.list_node)
+            nodes = await self.k8s.list_nodes()
             node_infos = []
-            for node in nodes.items:
+            for node in nodes:
                 cpu_cap = node.status.capacity.get("cpu", "?")
                 mem_cap = node.status.capacity.get("memory", "?")
                 disk_total_gb = None
@@ -636,9 +581,9 @@ class AgentManager:
             node_infos = []
         # Count agents
         try:
-            deps = await self.k8s._k8s_call(self.k8s.apps_api.list_namespaced_deployment, namespace=self.namespace)
-            total = sum(1 for d in deps.items if d.metadata.name.startswith("hermes-gateway"))
-            running = sum(1 for d in deps.items if d.metadata.name.startswith("hermes-gateway") and (d.status.available_replicas or 0) > 0)
+            deps = await self.k8s.list_deployments()
+            total = sum(1 for d in deps if d.metadata.name.startswith("hermes-gateway"))
+            running = sum(1 for d in deps if d.metadata.name.startswith("hermes-gateway") and (d.status.available_replicas or 0) > 0)
         except Exception:
             total = running = 0
         return ClusterStatusResponse(nodes=node_infos, namespace=self.namespace, total_agents=total, running_agents=running)

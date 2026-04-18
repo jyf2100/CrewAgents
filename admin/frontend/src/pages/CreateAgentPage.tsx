@@ -4,6 +4,7 @@ import type { AgentListItem, DeployProgress } from "../lib/admin-api";
 import { adminApi, AdminApiError } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import type { Translations } from "../i18n/zh";
+import { showToast } from "../lib/toast";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,25 +77,6 @@ const DEPLOY_STEP_LABELS = [
   "Update Ingress",
   "Wait Ready",
 ];
-
-// ---------------------------------------------------------------------------
-// Toast helper
-// ---------------------------------------------------------------------------
-
-function toast(msg: string, variant: "default" | "error" = "default") {
-  const el = document.createElement("div");
-  el.className =
-    "fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-lg transition-opacity " +
-    (variant === "error"
-      ? "border-red-300 bg-red-50 text-red-700"
-      : "border-border bg-card");
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => {
-    el.style.opacity = "0";
-    setTimeout(() => el.remove(), 300);
-  }, 3000);
-}
 
 // ---------------------------------------------------------------------------
 // Step indicator
@@ -245,11 +227,10 @@ export function CreateAgentPage() {
         errors.agentNumber = t.validationAgentExists;
       }
       if (!/^\d+m?$/.test(form.cpuLimit)) {
-        errors.cpuLimit = "Invalid CPU format (e.g. 1000m)";
+        errors.cpuLimit = t.invalidCpuFormat;
       }
       if (!/^\d+(Ki|Mi|Gi)$/.test(form.memoryLimit)) {
-        errors.memoryLimit =
-          "Invalid memory format (e.g. 512Mi, 1Gi)";
+        errors.memoryLimit = t.invalidMemoryFormat;
       }
     }
 
@@ -313,7 +294,7 @@ export function CreateAgentPage() {
       });
 
       setDeployResult(result);
-      toast(t.deploySuccess);
+      showToast(t.deploySuccess);
 
       // Redirect after a short delay
       setTimeout(() => {
@@ -327,7 +308,7 @@ export function CreateAgentPage() {
             ? err.message
             : t.deployFailed;
       setDeployError(msg);
-      toast(msg, "error");
+      showToast(msg, "error");
     } finally {
       setDeploying(false);
     }

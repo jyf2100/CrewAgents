@@ -1,19 +1,9 @@
 import os
-import re
 
 from fastapi import HTTPException
 
 from models import EnvVariable, EnvReadResponse, ConfigYaml, SoulMarkdown
-
-SECRET_PATTERNS = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)", re.IGNORECASE)
-
-BLOCKED_ENV_KEYS = {
-    "PATH", "HOME", "USER", "SHELL", "LD_PRELOAD", "LD_LIBRARY_PATH",
-    "PYTHONPATH", "PYTHONHOME", "HOSTNAME", "TERM", "LANG", "LC_ALL",
-    "PWD", "OLDPWD", "MAIL", "LOGNAME", "SSH_AUTH_SOCK", "DISPLAY",
-    "XDG_RUNTIME_DIR", "container", "KUBERNETES_SERVICE_HOST",
-    "KUBERNETES_SERVICE_PORT",
-}
+from constants import SECRET_PATTERNS, BLOCKED_ENV_KEYS
 
 
 class ConfigManager:
@@ -86,7 +76,7 @@ class ConfigManager:
         with open(path) as f:
             return ConfigYaml(content=f.read())
 
-    async def write_config(self, agent_id: int, content: str) -> None:
+    def write_config(self, agent_id: int, content: str) -> None:
         import yaml
         try:
             yaml.safe_load(content)
@@ -106,7 +96,7 @@ class ConfigManager:
         with open(path) as f:
             return SoulMarkdown(content=f.read())
 
-    async def write_soul(self, agent_id: int, content: str) -> None:
+    def write_soul(self, agent_id: int, content: str) -> None:
         path = os.path.join(self._agent_dir(agent_id), "SOUL.md")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp_path = path + ".tmp"

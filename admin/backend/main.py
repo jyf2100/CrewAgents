@@ -98,8 +98,8 @@ async def health():
 # Singleton helpers
 # ---------------------------------------------------------------------------
 k8s = K8sClient(namespace=K8S_NAMESPACE)
-manager = AgentManager(k8s=k8s, namespace=K8S_NAMESPACE, config_mgr=ConfigManager(data_root=HERMES_DATA_ROOT))
 config_mgr = ConfigManager(data_root=HERMES_DATA_ROOT)
+manager = AgentManager(k8s=k8s, namespace=K8S_NAMESPACE, config_mgr=config_mgr)
 tpl = TemplateGenerator()
 
 
@@ -189,7 +189,7 @@ async def read_config(agent_id: int):
          dependencies=[auth], tags=["agents-config"])
 async def write_config(agent_id: int, req: ConfigWriteRequest):
     """Write the config.yaml for an agent. Optionally restart after write."""
-    await config_mgr.write_config(agent_id, req.content)
+    config_mgr.write_config(agent_id, req.content)
     if req.restart:
         try:
             await manager.restart_agent(agent_id)
@@ -229,7 +229,7 @@ async def read_soul(agent_id: int):
          dependencies=[auth], tags=["agents-config"])
 async def write_soul(agent_id: int, req: SoulWriteRequest):
     """Write the SOUL.md for an agent."""
-    await config_mgr.write_soul(agent_id, req.content)
+    config_mgr.write_soul(agent_id, req.content)
     return MessageResponse(message="SOUL.md updated")
 
 
@@ -255,7 +255,7 @@ async def get_logs_token(agent_id: int):
 
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/logs", tags=["agents-monitoring"])
-async def stream_logs(agent_id: int, token: Optional[str] = Query(None)):
+async def stream_logs(request: Request, agent_id: int, token: Optional[str] = Query(None)):
     """SSE log stream for an agent. Accept ?token= as alternative auth for EventSource."""
     # Authenticate: either SSE token or admin key header
     if token:
@@ -265,12 +265,9 @@ async def stream_logs(agent_id: int, token: Optional[str] = Query(None)):
         # Fall back to header-based auth (will be checked by middleware pattern)
         raise HTTPException(status_code=401, detail="Missing SSE token")
 
-    if _sse_semaphore.locked():
-        raise HTTPException(status_code=429, detail="Too many concurrent log streams")
-
     async with _sse_semaphore:
         return StreamingResponse(
-            manager.stream_logs(agent_id, request=None),
+            manager.stream_logs(agent_id, request=request),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -388,10 +385,28 @@ async def update_settings(req: UpdateResourceLimitsRequest):
 @app.put(f"{API_PREFIX}/settings/admin-key", response_model=MessageResponse,
          dependencies=[auth], tags=["settings"])
 async def update_admin_key(req: UpdateAdminKeyRequest):
-    """Change the admin API key. Persists to /data/hermes/_admin/admin_key."""
+    """Change the admin API key. Persists to K8s Secret with file fallback."""
     global ADMIN_KEY
     ADMIN_KEY = req.new_key
-    # Persist to disk so it survives restarts
+
+    # Try K8s Secret first
+    try:
+        from kubernetes.client import V1Secret, V1ObjectMeta
+        secret_name = "hermes-admin-secret"
+        body = V1Secret(
+            api_version="v1", kind="Secret",
+            metadata=V1ObjectMeta(name=secret_name, namespace=K8S_NAMESPACE),
+            string_data={"admin_key": req.new_key}, type="Opaque",
+        )
+        await k8s._k8s_call(k8s.core_api.replace_namespaced_secret,
+                            name=secret_name, namespace=K8S_NAMESPACE, body=body)
+    except Exception:
+        try:
+            await k8s.create_secret(name="hermes-admin-secret", data={"admin_key": req.new_key})
+        except Exception:
+            pass  # Fall through to file fallback
+
+    # File fallback
     admin_dir = os.path.join(HERMES_DATA_ROOT, "_admin")
     os.makedirs(admin_dir, exist_ok=True)
     key_path = os.path.join(admin_dir, "admin_key")
@@ -399,6 +414,7 @@ async def update_admin_key(req: UpdateAdminKeyRequest):
     with open(tmp_path, "w") as f:
         f.write(req.new_key)
     os.replace(tmp_path, key_path)
+    os.chmod(key_path, 0o600)
     return MessageResponse(message="Admin key updated")
 
 
