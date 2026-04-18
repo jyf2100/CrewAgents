@@ -12,7 +12,7 @@ model:
   #   "anthropic"    - Direct Anthropic API (requires ANTHROPIC_API_KEY)
   #   "openai"       - Direct OpenAI API (requires OPENAI_API_KEY)
   #   "gemini"       - Google AI Studio (requires GEMINI_API_KEY)
-  #   "zai"          - ZhipuAI GLM (requires GLM_API_KEY)
+  #   "zhipuai"      - ZhipuAI GLM (requires GLM_API_KEY)
   #   "custom"       - Any OpenAI-compatible endpoint (set base_url)
   provider: "auto"
 

@@ -22,7 +22,7 @@ PROVIDER_URL_MAP = {
     "anthropic":  "https://api.anthropic.com/v1",
     "openai":     "https://api.openai.com/v1",
     "gemini":     "https://generativelanguage.googleapis.com/v1beta",
-    "zai":        "https://open.bigmodel.cn/api/paas/v4",
+    "zhipuai":    "https://open.bigmodel.cn/api/paas/v4",
     "custom":     "https://api.example.com/v1",
 }
 

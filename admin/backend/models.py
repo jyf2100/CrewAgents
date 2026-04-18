@@ -23,7 +23,7 @@ class LLMProvider(str, Enum):
     anthropic = "anthropic"
     openai = "openai"
     gemini = "gemini"
-    zai = "zai"
+    zhipuai = "zhipuai"
     custom = "custom"
 
 

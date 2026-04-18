@@ -46,7 +46,7 @@ class TemplateGenerator:
             "anthropic": "ANTHROPIC_API_KEY",
             "openai": "OPENAI_API_KEY",
             "gemini": "GEMINI_API_KEY",
-            "zai": "GLM_API_KEY",
+            "zhipuai": "GLM_API_KEY",
             "custom": "CUSTOM_API_KEY",
         }
         env_key = key_map.get(provider, "CUSTOM_API_KEY")
