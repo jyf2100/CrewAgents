@@ -265,4 +265,17 @@ export const en: Translations = {
   platform: "Platform",
   hide: "Hide",
   show: "Show",
+
+  // Container status
+  containerNotReady: "Not Ready",
+
+  // Deploy step labels
+  deployStepSecret: "Creating Secret",
+  deployStepInitData: "Init Data",
+  deployStepCreateDeployment: "Create Deployment",
+  deployStepUpdateIngress: "Update Ingress",
+  deployStepWaitReady: "Wait Ready",
+
+  // Misc
+  envVarCount: "{n} variable(s)",
 };

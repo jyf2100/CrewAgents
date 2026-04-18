@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type {
   AdminSettings,
   ClusterStatus,
@@ -47,6 +47,8 @@ export function SettingsPage() {
   const [templateContents, setTemplateContents] = useState<
     Record<string, string>
   >({});
+  const templateContentsRef = useRef(templateContents);
+  templateContentsRef.current = templateContents;
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
 
@@ -64,12 +66,12 @@ export function SettingsPage() {
       setError(null);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : t.errorLoadFailed
+        err instanceof Error ? err.message : "Failed to load"
       );
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     loadSettings();
@@ -78,7 +80,7 @@ export function SettingsPage() {
   // Load template when tab changes
   const loadTemplate = useCallback(
     async (type: string) => {
-      if (templateContents[type] !== undefined) return;
+      if (templateContentsRef.current[type] !== undefined) return;
       setTemplateLoading(true);
       try {
         const res = await adminApi.getTemplate(type);
@@ -89,7 +91,7 @@ export function SettingsPage() {
         setTemplateLoading(false);
       }
     },
-    [templateContents, t]
+    [t]
   );
 
   useEffect(() => {
@@ -259,7 +261,7 @@ export function SettingsPage() {
               </table>
             </div>
             <div className="mt-3 text-xs text-muted-foreground">
-              Namespace: {cluster.namespace} | {t.runningAgents}:{" "}
+              {t.agentNamespace}: {cluster.namespace} | {t.runningAgents}:{" "}
               {cluster.running_agents}/{cluster.total_agents}
             </div>
           </SettingsSection>

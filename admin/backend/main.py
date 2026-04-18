@@ -36,7 +36,7 @@ from templates import TemplateGenerator
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-API_PREFIX = "/admin/api"
+API_PREFIX = ""
 K8S_NAMESPACE = os.getenv("K8S_NAMESPACE", "hermes-agent")
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 HERMES_DATA_ROOT = os.getenv("HERMES_DATA_ROOT", "/data/hermes")
@@ -109,6 +109,24 @@ tpl = TemplateGenerator()
 _sse_tokens: dict[str, tuple[int, float]] = {}
 SSE_TOKEN_TTL = 300
 _sse_semaphore = asyncio.Semaphore(20)
+
+
+def _cleanup_expired_sse_tokens():
+    """Periodic cleanup of expired SSE tokens."""
+    now = time.time()
+    expired = [k for k, (_, exp) in _sse_tokens.items() if now > exp]
+    for k in expired:
+        _sse_tokens.pop(k, None)
+
+
+@app.on_event("startup")
+async def _startup_cleanup():
+    """Schedule periodic SSE token cleanup."""
+    async def _sweep():
+        while True:
+            await asyncio.sleep(60)
+            _cleanup_expired_sse_tokens()
+    asyncio.create_task(_sweep())
 
 
 def _verify_sse_token(agent_id: int, token: str) -> bool:
@@ -391,15 +409,7 @@ async def update_admin_key(req: UpdateAdminKeyRequest):
 
     # Try K8s Secret first
     try:
-        from kubernetes.client import V1Secret, V1ObjectMeta
-        secret_name = "hermes-admin-secret"
-        body = V1Secret(
-            api_version="v1", kind="Secret",
-            metadata=V1ObjectMeta(name=secret_name, namespace=K8S_NAMESPACE),
-            string_data={"admin_key": req.new_key}, type="Opaque",
-        )
-        await k8s._k8s_call(k8s.core_api.replace_namespaced_secret,
-                            name=secret_name, namespace=K8S_NAMESPACE, body=body)
+        await k8s.replace_secret("hermes-admin-secret", {"admin_key": req.new_key})
     except Exception:
         try:
             await k8s.create_secret(name="hermes-admin-secret", data={"admin_key": req.new_key})

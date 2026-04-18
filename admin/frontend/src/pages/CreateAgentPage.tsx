@@ -70,14 +70,6 @@ const PROVIDER_OPTIONS = [
   { value: "custom", label: "Custom" },
 ];
 
-const DEPLOY_STEP_LABELS = [
-  "Creating Secret",
-  "Init Data",
-  "Create Deployment",
-  "Update Ingress",
-  "Wait Ready",
-];
-
 // ---------------------------------------------------------------------------
 // Step indicator
 // ---------------------------------------------------------------------------
@@ -541,13 +533,13 @@ function StepLlmConfig({
       } else {
         setTestResult({
           success: false,
-          message: `${t.llmTestFailed}: ${result.error || "Unknown error"}`,
+          message: `${t.llmTestFailed}: ${result.error || t.errorGeneric}`,
         });
       }
     } catch (err) {
       setTestResult({
         success: false,
-        message: `${t.llmTestFailed}: ${err instanceof Error ? err.message : "Network error"}`,
+        message: `${t.llmTestFailed}: ${err instanceof Error ? err.message : t.errorNetwork}`,
       });
     } finally {
       setTesting(false);
@@ -757,6 +749,14 @@ function StepConfirm({
     PROVIDER_OPTIONS.find((p) => p.value === form.provider)?.label ||
     form.provider;
 
+  const stepLabels = [
+    t.deployStepSecret,
+    t.deployStepInitData,
+    t.deployStepCreateDeployment,
+    t.deployStepUpdateIngress,
+    t.deployStepWaitReady,
+  ];
+
   return (
     <div className="space-y-6">
       {/* Summary card */}
@@ -779,7 +779,7 @@ function StepConfirm({
           {form.envVars.length > 0 && (
             <SummaryRow
               label={t.extraEnv}
-              value={`${form.envVars.length} variable(s)`}
+              value={t.envVarCount.replace("{n}", String(form.envVars.length))}
             />
           )}
         </div>
@@ -803,7 +803,7 @@ function StepConfirm({
             {t.deploying}
           </h3>
           <div className="space-y-2">
-            {DEPLOY_STEP_LABELS.map((label, idx) => {
+            {stepLabels.map((label, idx) => {
               const stepInfo = deployResult?.steps?.[idx];
               const status = deploying
                 ? stepInfo?.status || (idx === 0 ? "running" : "pending")

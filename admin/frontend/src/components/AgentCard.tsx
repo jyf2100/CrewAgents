@@ -85,14 +85,18 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
   async function handleBackup() {
     try {
       const resp = await adminApi.backupAgent(agent.id);
-      // Build download URL with admin key for authentication
-      const downloadUrl = resp.download_url.includes("?")
-        ? `${resp.download_url}&admin_key=${encodeURIComponent(getAdminKey())}`
-        : `${resp.download_url}?admin_key=${encodeURIComponent(getAdminKey())}`;
+      // Download via fetch with header auth (avoids key in URL)
+      const downloadRes = await fetch(resp.download_url, {
+        headers: { "X-Admin-Key": getAdminKey() },
+      });
+      if (!downloadRes.ok) throw new Error("Download failed");
+      const blob = await downloadRes.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = downloadUrl;
+      a.href = url;
       a.download = resp.filename || `${agent.name}-backup.tar.gz`;
       a.click();
+      URL.revokeObjectURL(url);
     } catch (err) {
       showToast(
         `${t.backup} - ${err instanceof AdminApiError ? err.detail : t.errorGeneric}`,

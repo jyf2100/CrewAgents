@@ -1,7 +1,7 @@
 # ============================================================================
 # Stage 1: Build frontend
 # ============================================================================
-FROM registry.cn-hangzhou.aliyuncs.com/library/node:20-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -17,7 +17,7 @@ RUN npm run build -- --base /admin/
 # ============================================================================
 # Stage 2: Runtime with Python
 # ============================================================================
-FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim AS runtime
+FROM python:3.11-slim AS runtime
 
 # Install curl for health checks
 RUN apt-get update && \
@@ -34,13 +34,11 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && 
 # Copy backend source
 COPY backend/ ./
 
+# Copy template files (admin/templates/ -> /app/templates/)
+COPY templates/ /app/templates/
+
 # Copy built frontend assets from stage 1
 COPY --from=frontend-builder /app/frontend/dist /app/static
-
-# Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser && \
-    chown -R appuser:appuser /app
-USER appuser
 
 EXPOSE 48082
 

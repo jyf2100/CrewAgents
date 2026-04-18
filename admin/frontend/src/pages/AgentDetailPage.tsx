@@ -88,12 +88,12 @@ export function AgentDetailPage() {
       setError(null);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : t.errorLoadFailed
+        err instanceof Error ? err.message : "Failed to load"
       );
     } finally {
       setLoading(false);
     }
-  }, [agentId, t]);
+  }, [agentId]);
 
   useEffect(() => {
     loadAgent();
@@ -394,7 +394,7 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
               </div>
               {pod.containers.map((c) => (
                 <div key={c.image} className="ml-4 text-xs text-muted-foreground">
-                  {c.image} - {c.ready ? "Ready" : "Not Ready"}
+                  {c.image} - {c.ready ? t.containerReady : t.containerNotReady}
                   {c.restart_count > 0 && ` (${t.restartCount}: ${c.restart_count})`}
                 </div>
               ))}
@@ -934,12 +934,12 @@ function EventsTab({ agentId }: { agentId: number }) {
       setError(null);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : t.errorLoadFailed
+        err instanceof Error ? err.message : "Failed to load"
       );
     } finally {
       setLoading(false);
     }
-  }, [agentId, t]);
+  }, [agentId]);
 
   useEffect(() => {
     loadEvents();
@@ -1031,12 +1031,12 @@ function HealthTab({ agentId }: { agentId: number }) {
       setError(null);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : t.errorLoadFailed
+        err instanceof Error ? err.message : "Failed to load"
       );
     } finally {
       setLoading(false);
     }
-  }, [agentId, t]);
+  }, [agentId]);
 
   useEffect(() => {
     loadHealth();

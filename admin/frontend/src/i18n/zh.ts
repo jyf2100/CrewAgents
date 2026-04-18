@@ -243,6 +243,19 @@ export interface Translations {
   platform: string;
   hide: string;
   show: string;
+
+  // Container status
+  containerNotReady: string;
+
+  // Deploy step labels
+  deployStepSecret: string;
+  deployStepInitData: string;
+  deployStepCreateDeployment: string;
+  deployStepUpdateIngress: string;
+  deployStepWaitReady: string;
+
+  // Misc
+  envVarCount: string;
 }
 
 export const zh: Translations = {
@@ -510,4 +523,17 @@ export const zh: Translations = {
   platform: "平台",
   hide: "隐藏",
   show: "显示",
+
+  // Container status
+  containerNotReady: "未就绪",
+
+  // Deploy step labels
+  deployStepSecret: "创建 Secret",
+  deployStepInitData: "初始化数据",
+  deployStepCreateDeployment: "创建 Deployment",
+  deployStepUpdateIngress: "更新 Ingress",
+  deployStepWaitReady: "等待就绪",
+
+  // Misc
+  envVarCount: "{n} 个变量",
 };

@@ -114,6 +114,18 @@ class K8sClient:
             name=name, namespace=self.namespace,
         )
 
+    async def replace_secret(self, name: str, data: dict[str, str]) -> V1Secret:
+        """Replace an existing secret's data."""
+        body = V1Secret(
+            api_version="v1", kind="Secret",
+            metadata=V1ObjectMeta(name=name, namespace=self.namespace),
+            string_data=data, type="Opaque",
+        )
+        return await self._k8s_call(
+            self.core_api.replace_namespaced_secret,
+            name=name, namespace=self.namespace, body=body,
+        )
+
     # Pods
     async def get_pods_for_deployment(self, deployment_name: str) -> list[V1Pod]:
         dep = await self.get_deployment(deployment_name)
@@ -208,7 +220,7 @@ class K8sClient:
                                      poll_interval_seconds: int = 5) -> bool:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
-            dep = await asyncio.to_thread(
+            dep = await self._k8s_call(
                 self.apps_api.read_namespaced_deployment,
                 name=name, namespace=self.namespace,
             )

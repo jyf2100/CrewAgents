@@ -8,9 +8,10 @@ from constants import PROVIDER_URL_MAP
 class TemplateGenerator:
     def __init__(self, templates_dir: str | None = None):
         if templates_dir is None:
-            # Default: admin/templates/ relative to project root
+            # Default: templates/ sibling of the backend/ package directory
+            # In Docker: __file__ = /app/templates.py -> dirname = /app -> templates_dir = /app/templates/
             self.templates_dir = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                os.path.dirname(os.path.abspath(__file__)),
                 "templates"
             )
         else:
