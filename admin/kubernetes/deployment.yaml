@@ -19,8 +19,6 @@ spec:
       annotations:
         kubectl.kubernetes.io/restartedAt: ""
     spec:
-      hostNetwork: true
-      dnsPolicy: Default
       serviceAccountName: hermes-admin
       containers:
         - name: admin

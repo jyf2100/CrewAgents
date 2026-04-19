@@ -22,6 +22,7 @@ class K8sClient:
         self.apps_api = AppsV1Api()
         self.core_api = CoreV1Api()
         self.networking_api = NetworkingV1Api()
+        self._ingress_lock = asyncio.Lock()
 
     @staticmethod
     async def _k8s_call(fn, *args, **kwargs):
@@ -163,7 +164,6 @@ class K8sClient:
         return related
 
     # Ingress (with lock for concurrent mutations)
-    _ingress_lock = asyncio.Lock()
 
     async def add_ingress_path(self, path: str, service_name: str, service_port: int) -> None:
         async with self._ingress_lock:
