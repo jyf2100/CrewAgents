@@ -58,7 +58,9 @@ class AgentManager:
     # --- List Agents ---
     async def list_agents(self) -> AgentListResponse:
         deps = await self.k8s.list_deployments()
-        agents = []
+
+        # First pass: collect agent metadata (no I/O)
+        agent_meta: list[tuple[int, str, AgentStatus, Any, str]] = []
         for dep in deps:
             name = dep.metadata.name
             if not name.startswith("hermes-gateway"):
@@ -71,30 +73,37 @@ class AgentManager:
 
             replicas = dep.spec.replicas or 0
             available = dep.status.available_replicas or 0
-
             status = self._resolve_status(replicas, available, dep.status.conditions)
-
-            # Age
             created = dep.metadata.creation_timestamp
             age_human = format_age(created)
 
-            # Resource usage from metrics-server
-            resources = ResourceUsage()
-            try:
-                resources = await self.get_resource_usage(agent_num)
-            except Exception:
-                logger.debug("Failed to get resource usage for agent %s", name)
+            agent_meta.append((agent_num, name, status, created, age_human))
 
-            agents.append(AgentSummary(
+        # Parallel fetch resource usage for all agents at once
+        agent_nums = [m[0] for m in agent_meta]
+        resource_map: dict[int, ResourceUsage] = {}
+        if agent_nums:
+            resource_results = await asyncio.gather(
+                *[self.get_resource_usage(n) for n in agent_nums],
+                return_exceptions=True,
+            )
+            for n, r in zip(agent_nums, resource_results):
+                resource_map[n] = r if not isinstance(r, Exception) else ResourceUsage()
+
+        # Second pass: build AgentSummary with pre-fetched resources
+        agents = [
+            AgentSummary(
                 id=agent_num,
                 name=name,
                 status=status,
                 url_path=f"/agent{agent_num}" if agent_num > 0 else "",
-                resources=resources,
+                resources=resource_map.get(agent_num, ResourceUsage()),
                 restart_count=0,
                 created_at=created,
                 age_human=age_human,
-            ))
+            )
+            for agent_num, name, status, created, age_human in agent_meta
+        ]
         return AgentListResponse(agents=agents, total=len(agents))
 
     # --- Get Agent Detail ---
@@ -107,7 +116,7 @@ class AgentManager:
         replicas = dep.spec.replicas or 0
         available = dep.status.available_replicas or 0
 
-        status = self._resolve_status(replicas, available)
+        status = self._resolve_status(replicas, available, dep.status.conditions)
 
         pods_info = []
         pods = await self.k8s.get_pods_for_deployment(name)
@@ -144,6 +153,13 @@ class AgentManager:
         created = dep.metadata.creation_timestamp
         age_human = format_age(created)
 
+        # Resource usage from metrics-server
+        resources = ResourceUsage()
+        try:
+            resources = await self.get_resource_usage(agent_id)
+        except Exception:
+            logger.debug("Failed to get resource usage for agent %s", name)
+
         return AgentDetailResponse(
             id=agent_id,
             name=name,
@@ -153,7 +169,7 @@ class AgentManager:
             labels=dep.metadata.labels or {},
             created_at=created,
             pods=pods_info,
-            resources=ResourceUsage(),
+            resources=resources,
             restart_count=restart_count,
             age_human=age_human,
             ingress_path=f"/agent{agent_id}",
@@ -406,8 +422,8 @@ class AgentManager:
                 for line in log_stream:
                     decoded = line.decode("utf-8", errors="replace").rstrip("\n")
                     _line_q.put(decoded)
-            except Exception:
-                pass  # Swallowed -- the generator will notice the sentinel
+            except Exception as e:
+                logger.warning("Log stream reader failed: %s", e)
             finally:
                 _line_q.put(None)  # sentinel signals end-of-stream
 
