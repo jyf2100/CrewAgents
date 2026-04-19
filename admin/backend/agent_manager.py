@@ -26,6 +26,15 @@ from constants import SECRET_PATTERNS, PROVIDER_URL_MAP, format_age
 
 
 class AgentManager:
+    @staticmethod
+    def _deployment_name(agent_number: int) -> str:
+        """Map agent_number to the K8s Deployment name.
+
+        Agent 0 uses the bare name "hermes-gateway" (no suffix).
+        Agents 1+ use "hermes-gateway-{number}".
+        """
+        return "hermes-gateway" if agent_number == 0 else f"hermes-gateway-{agent_number}"
+
     def __init__(self, k8s: K8sClient, namespace: str = "hermes-agent",
                  config_mgr: ConfigManager | None = None):
         self.k8s = k8s
@@ -85,7 +94,7 @@ class AgentManager:
 
     # --- Get Agent Detail ---
     async def get_agent_detail(self, agent_id: int) -> AgentDetailResponse:
-        name = f"hermes-gateway-{agent_id}"
+        name = self._deployment_name(agent_id)
         dep = await self.k8s.get_deployment(name)
         if dep is None:
             raise HTTPException(404, f"Agent {name} not found")
@@ -154,7 +163,7 @@ class AgentManager:
     async def create_agent(self, req: CreateAgentRequest) -> CreateAgentResponse:
         steps: list[CreateStepStatus] = []
         agent_num = req.agent_number
-        name = f"hermes-gateway-{agent_num}"
+        name = self._deployment_name(agent_num)
         secret_name = f"{name}-secret"
         data_dir = f"/data/hermes/agent{agent_num}"
 
@@ -271,7 +280,7 @@ class AgentManager:
 
     # --- Delete Agent ---
     async def delete_agent(self, agent_id: int, backup: bool = True) -> MessageResponse:
-        name = f"hermes-gateway-{agent_id}"
+        name = self._deployment_name(agent_id)
         secret_name = f"{name}-secret"
         dep = await self.k8s.get_deployment(name)
         if dep is None:
@@ -304,7 +313,7 @@ class AgentManager:
 
     # --- Restart Agent ---
     async def restart_agent(self, agent_id: int) -> ActionResponse:
-        name = f"hermes-gateway-{agent_id}"
+        name = self._deployment_name(agent_id)
         dep = await self.k8s.get_deployment(name)
         if dep is None:
             raise HTTPException(404, f"Agent {name} not found")
@@ -323,7 +332,7 @@ class AgentManager:
 
     # --- Scale Agent ---
     async def scale_agent(self, agent_id: int, replicas: int, action: str) -> ActionResponse:
-        name = f"hermes-gateway-{agent_id}"
+        name = self._deployment_name(agent_id)
         dep = await self.k8s.get_deployment(name)
         if dep is None:
             raise HTTPException(404, f"Agent {name} not found")
@@ -333,7 +342,7 @@ class AgentManager:
 
     # --- Health Check ---
     async def check_health(self, agent_id: int) -> HealthResponse:
-        service_name = f"hermes-gateway-{agent_id}"
+        service_name = self._deployment_name(agent_id)
         url = f"http://{service_name}.{self.namespace}.svc.cluster.local:8642/health"
         start = time.monotonic()
         try:
@@ -355,39 +364,81 @@ class AgentManager:
 
     # --- Stream Logs ---
     async def stream_logs(self, agent_id: int, tail: int = 500,
-                          follow: bool = True, request: Request | None = None) -> AsyncGenerator[str, None]:
-        name = f"hermes-gateway-{agent_id}"
+                          follow: bool = True, request: Request | None = None,
+                          max_duration: float = 300.0) -> AsyncGenerator[str, None]:
+        """Stream pod logs over SSE.
+
+        The K8s ``read_namespaced_pod_log`` with ``follow=True`` returns a
+        *synchronous* iterator that blocks the calling thread on network I/O.
+        The old implementation iterated it inside an ``async`` function which
+        **blocked the uvicorn event-loop** and starved every other request
+        (health checks, API calls, etc.), leading to 503s and Pod restarts.
+
+        Fix: run the blocking iteration inside ``loop.run_in_executor`` so it
+        lives on a real OS thread, and bridge lines to the async generator
+        through a ``queue.SimpleQueue`` (thread-safe, no asyncio dependency).
+
+        ``max_duration`` caps the total connection time (seconds) so that a
+        long-running follow stream cannot hold resources forever.
+        """
+        import queue as _queue_mod
+
+        name = self._deployment_name(agent_id)
         pod_name = await self.k8s.get_first_pod_name(name)
         if not pod_name:
             yield f"event: error\ndata: {json.dumps({'message': 'No running pod found'})}\n\n"
             return
+
+        _line_q: _queue_mod.SimpleQueue[str | None] = _queue_mod.SimpleQueue()
+
+        def _read_stream_sync():
+            """Run in a worker thread -- read lines and push to a thread-safe queue."""
+            try:
+                log_stream = self.k8s.core_api.read_namespaced_pod_log(
+                    name=pod_name, namespace=self.namespace,
+                    tail_lines=tail, follow=follow, _preload_content=False,
+                )
+                for line in log_stream:
+                    decoded = line.decode("utf-8", errors="replace").rstrip("\n")
+                    _line_q.put(decoded)
+            except Exception:
+                pass  # Swallowed -- the generator will notice the sentinel
+            finally:
+                _line_q.put(None)  # sentinel signals end-of-stream
+
+        loop = asyncio.get_running_loop()
+        # Submit the blocking work to the default thread-pool executor.
+        stream_future = loop.run_in_executor(None, _read_stream_sync)
+
+        start_time = time.monotonic()
         try:
-            log_stream = await asyncio.to_thread(
-                self.k8s.core_api.read_namespaced_pod_log,
-                name=pod_name, namespace=self.namespace,
-                tail_lines=tail, follow=follow, _preload_content=False,
-            )
-            line_queue: asyncio.Queue[str | None] = asyncio.Queue()
-
-            async def _enqueue():
-                try:
-                    for line in log_stream:
-                        decoded = line.decode("utf-8", errors="replace").rstrip("\n")
-                        await line_queue.put(decoded)
-                finally:
-                    await line_queue.put(None)
-
-            asyncio.create_task(_enqueue())
             while True:
+                # --- Enforce max duration ---
+                remaining = max_duration - (time.monotonic() - start_time)
+                if remaining <= 0:
+                    yield (f"event: info\ndata: "
+                           f"{json.dumps({'message': 'Max connection duration reached, closing stream.'})}\n\n")
+                    break
+
+                # --- Check client disconnect ---
                 if request and await request.is_disconnected():
                     break
+
+                # --- Drain lines from the thread-safe queue ---
+                wait_secs = min(15.0, remaining)
                 try:
-                    line = await asyncio.wait_for(line_queue.get(), timeout=15.0)
-                except asyncio.TimeoutError:
+                    line = await asyncio.wait_for(
+                        loop.run_in_executor(None, _line_q.get, True, wait_secs),
+                        timeout=wait_secs + 1.0,
+                    )
+                except (asyncio.TimeoutError, Exception):
+                    # Timeout / empty queue -- send keep-alive ping
                     yield ": ping\n\n"
                     continue
+
                 if line is None:
                     break
+
                 payload = json.dumps({
                     "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     "message": line, "pod": pod_name,
@@ -397,10 +448,13 @@ class AgentManager:
             yield f"event: error\ndata: {json.dumps({'message': f'Log stream error: {e}'})}\n\n"
         finally:
             yield "event: done\ndata: {}\n\n"
+            # Best-effort cancellation of the background thread work.
+            if not stream_future.done():
+                stream_future.cancel()
 
     # --- Events ---
     async def get_events(self, agent_id: int) -> EventListResponse:
-        name = f"hermes-gateway-{agent_id}"
+        name = self._deployment_name(agent_id)
         raw_events = await self.k8s.get_events(name)
         events = []
         for e in raw_events:
@@ -425,7 +479,7 @@ class AgentManager:
 
     # --- Resource Usage ---
     async def get_resource_usage(self, agent_id: int) -> ResourceUsage:
-        name = f"hermes-gateway-{agent_id}"
+        name = self._deployment_name(agent_id)
         pods = await self.k8s.get_pods_for_deployment(name)
         resources = ResourceUsage()
         for pod in pods:
@@ -447,7 +501,7 @@ class AgentManager:
     # --- Backup ---
     async def _create_backup(self, agent_id: int) -> str:
         import yaml as pyyaml
-        name = f"hermes-gateway-{agent_id}"
+        name = self._deployment_name(agent_id)
         secret_name = f"{name}-secret"
         timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
         filename = f"agent{agent_id}-{timestamp}.tar.gz"

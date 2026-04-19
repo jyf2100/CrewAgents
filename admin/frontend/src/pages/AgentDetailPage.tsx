@@ -548,8 +548,9 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
             <input
               type="text"
               value={v.key}
-              readOnly
-              className="h-9 px-3 text-sm border border-border rounded bg-muted flex-1 font-mono"
+              readOnly={v.key !== ""}
+              onChange={(e) => updateVar(i, "key", e.target.value)}
+              className={`h-9 px-3 text-sm border border-border rounded flex-1 font-mono ${v.key !== "" ? "bg-muted" : ""}`}
               placeholder={t.envKey}
             />
             <input

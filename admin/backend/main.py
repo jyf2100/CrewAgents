@@ -108,6 +108,7 @@ tpl = TemplateGenerator()
 # ---------------------------------------------------------------------------
 _sse_tokens: dict[str, tuple[int, float]] = {}
 SSE_TOKEN_TTL = 300
+SSE_MAX_DURATION = 300  # seconds -- hard cap on any single SSE log connection
 _sse_semaphore = asyncio.Semaphore(20)
 
 
@@ -285,7 +286,7 @@ async def stream_logs(request: Request, agent_id: int, token: Optional[str] = Qu
 
     async with _sse_semaphore:
         return StreamingResponse(
-            manager.stream_logs(agent_id, request=request),
+            manager.stream_logs(agent_id, request=request, max_duration=SSE_MAX_DURATION),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",

@@ -1,11 +1,22 @@
 import os
 from typing import Optional
 
+import yaml
+
 from models import ResourceSpec, TemplateResponse, TemplateTypeResponse
 from constants import PROVIDER_URL_MAP
 
 
 class TemplateGenerator:
+    @staticmethod
+    def _deployment_name(agent_number: int) -> str:
+        """Map agent_number to the K8s Deployment name.
+
+        Agent 0 uses the bare name "hermes-gateway" (no suffix).
+        Agents 1+ use "hermes-gateway-{number}".
+        """
+        return "hermes-gateway" if agent_number == 0 else f"hermes-gateway-{agent_number}"
+
     def __init__(self, templates_dir: str | None = None):
         if templates_dir is None:
             # Default: templates/ sibling of the backend/ package directory
@@ -68,26 +79,24 @@ class TemplateGenerator:
                            session_reset_enabled: bool = False) -> str:
         """Generate config.yaml content."""
         resolved_url = base_url or PROVIDER_URL_MAP.get(provider, PROVIDER_URL_MAP["openrouter"])
-        return f"""model:
-  default: "{default_model}"
-  provider: "{provider}"
-  base_url: "{resolved_url}"
-terminal:
-  enabled: {str(terminal_enabled).lower()}
-browser:
-  enabled: {str(browser_enabled).lower()}
-streaming:
-  enabled: {str(streaming_enabled).lower()}
-memory:
-  enabled: {str(memory_enabled).lower()}
-session_reset:
-  enabled: {str(session_reset_enabled).lower()}
-"""
+        config_data = {
+            "model": {
+                "default": default_model,
+                "provider": provider,
+                "base_url": resolved_url,
+            },
+            "terminal": {"enabled": terminal_enabled},
+            "browser": {"enabled": browser_enabled},
+            "streaming": {"enabled": streaming_enabled},
+            "memory": {"enabled": memory_enabled},
+            "session_reset": {"enabled": session_reset_enabled},
+        }
+        return yaml.dump(config_data, default_flow_style=False, allow_unicode=True)
 
     def render_deployment(self, agent_number: int, secret_name: str,
                           resources: ResourceSpec, namespace: str = "hermes-agent") -> dict:
         """Return a dict for K8s Deployment creation."""
-        name = f"hermes-gateway-{agent_number}"
+        name = self._deployment_name(agent_number)
         return {
             "apiVersion": "apps/v1",
             "kind": "Deployment",
@@ -146,7 +155,7 @@ session_reset:
         }
 
     def render_service(self, agent_number: int, namespace: str = "hermes-agent") -> dict:
-        name = f"hermes-gateway-{agent_number}"
+        name = self._deployment_name(agent_number)
         return {
             "apiVersion": "v1",
             "kind": "Service",

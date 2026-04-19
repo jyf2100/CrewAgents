@@ -132,6 +132,19 @@ export function SettingsPage() {
   }
 
   async function handleSaveResources() {
+    // Validate CPU format
+    const cpuRegex = /^\d+(\.\d+)?m?$/;
+    if (!cpuRegex.test(cpuLimit)) {
+      showToast(t.invalidCpuFormat || "Invalid CPU format (e.g., 250m, 1, 1000m)", "error");
+      return;
+    }
+    // Validate Memory format
+    const memRegex = /^\d+(Ki|Mi|Gi|Ti)$/;
+    if (!memRegex.test(memoryLimit)) {
+      showToast(t.invalidMemoryFormat || "Invalid memory format (e.g., 512Mi, 1Gi)", "error");
+      return;
+    }
+
     setSavingResources(true);
     try {
       await adminApi.updateSettings({

@@ -1,10 +1,49 @@
 from __future__ import annotations
 import datetime
+import re
 from enum import Enum
 from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from constants import PROVIDER_URL_MAP
+
+# K8s resource format constants
+K8S_CPU_REGEX = re.compile(r"^\d+(\.\d+)?m?$")
+K8S_MEMORY_REGEX = re.compile(r"^\d+(Ki|Mi|Gi|Ti)$")
+
+# SSRF blocked hostnames
+_SSRF_BLOCKED_HOSTNAMES = {"169.254.169.254", "localhost", "127.0.0.1"}
+
+
+def _validate_k8s_cpu(value: str, field_name: str) -> str:
+    if not K8S_CPU_REGEX.match(value):
+        raise ValueError(
+            f"{field_name}: invalid CPU format '{value}'. "
+            "Expected format like '250m', '1', '1000m', or '0.5'"
+        )
+    return value
+
+
+def _validate_k8s_memory(value: str, field_name: str) -> str:
+    if not K8S_MEMORY_REGEX.match(value):
+        raise ValueError(
+            f"{field_name}: invalid memory format '{value}'. "
+            "Expected format like '512Mi', '1Gi', '2Gi', or '100Ki'"
+        )
+    return value
+
+
+def _check_ssrf(url: str) -> str:
+    """Validate base_url against SSRF by blocking metadata/local hostnames."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname in _SSRF_BLOCKED_HOSTNAMES:
+        raise ValueError(
+            f"base_url hostname '{hostname}' is not allowed (SSRF protection)"
+        )
+    return url
 
 
 # Enums
@@ -60,8 +99,13 @@ class PodInfo(BaseModel):
 
 
 class EnvVariable(BaseModel):
-    key: str
-    value: str = ""
+    key: str = Field(
+        ...,
+        min_length=1,
+        max_length=256,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+    )
+    value: str = Field("", max_length=65536)
     masked: bool = False
     is_secret: bool = False
 
@@ -117,29 +161,46 @@ class ResourceSpec(BaseModel):
     memory_request: str = "512Mi"
     memory_limit: str = "1Gi"
 
+    @field_validator("cpu_request", "cpu_limit", mode="before")
+    @classmethod
+    def _validate_cpu(cls, v: str) -> str:
+        return _validate_k8s_cpu(v, "cpu_request/cpu_limit")
+
+    @field_validator("memory_request", "memory_limit", mode="before")
+    @classmethod
+    def _validate_memory(cls, v: str) -> str:
+        return _validate_k8s_memory(v, "memory_request/memory_limit")
+
 
 class LLMConfig(BaseModel):
     provider: LLMProvider = LLMProvider.openrouter
-    api_key: str = Field(..., min_length=1)
-    model: str = "anthropic/claude-sonnet-4-20250514"
-    base_url: Optional[str] = None
+    api_key: str = Field(..., min_length=1, max_length=4096)
+    model: str = Field(
+        "anthropic/claude-sonnet-4-20250514",
+        max_length=256,
+        pattern=r'^[a-zA-Z0-9\-_./:]+$',
+    )
+    base_url: Optional[str] = Field(None, max_length=2048)
 
     @field_validator("base_url", mode="before")
     @classmethod
     def _fill_default_url(cls, v, info):
         if v:
+            if not v.startswith(("http://", "https://")):
+                raise ValueError("base_url must start with http:// or https://")
+            _check_ssrf(v)
             return v
         provider = info.data.get("provider")
         return PROVIDER_URL_MAP.get(provider)
 
 
 class CreateAgentRequest(BaseModel):
-    agent_number: int = Field(..., ge=1)
+    agent_number: int = Field(..., ge=1, le=1000)
     display_name: Optional[str] = None
     resources: ResourceSpec = Field(default_factory=ResourceSpec)
     llm: LLMConfig
-    soul_md: str = "You are a helpful, concise AI assistant.\n"
-    extra_env: list[EnvVariable] = Field(default_factory=list)
+    soul_md: str = Field("You are a helpful, concise AI assistant.\n", max_length=1_000_000)
+    extra_env: list[EnvVariable] = Field(default_factory=list, max_length=50)
     terminal_enabled: bool = True
     browser_enabled: bool = False
     streaming_enabled: bool = True
@@ -168,17 +229,17 @@ class EnvReadResponse(BaseModel):
 
 
 class EnvWriteRequest(BaseModel):
-    variables: list[EnvVariable]
+    variables: list[EnvVariable] = Field(..., max_length=100)
     restart: bool = True
 
 
 class ConfigWriteRequest(BaseModel):
-    content: str = Field(..., description="Full YAML content for config.yaml")
+    content: str = Field(..., min_length=1, max_length=5_000_000, description="Full YAML content for config.yaml")
     restart: bool = True
 
 
 class SoulWriteRequest(BaseModel):
-    content: str = Field(..., description="Full markdown content for SOUL.md")
+    content: str = Field(..., min_length=1, max_length=1_000_000, description="Full markdown content for SOUL.md")
 
 
 # Health
@@ -254,15 +315,28 @@ class TemplateTypeResponse(BaseModel):
 
 
 class UpdateTemplateRequest(BaseModel):
-    content: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1, max_length=5_000_000)
 
 
 # Test LLM Connection
 class TestLLMRequest(BaseModel):
     provider: LLMProvider
-    api_key: str
-    model: str = "anthropic/claude-sonnet-4-20250514"
-    base_url: Optional[str] = None
+    api_key: str = Field(..., min_length=1, max_length=4096)
+    model: str = Field(
+        "anthropic/claude-sonnet-4-20250514",
+        max_length=256,
+        pattern=r'^[a-zA-Z0-9\-_./:]+$',
+    )
+    base_url: Optional[str] = Field(None, max_length=2048)
+
+    @field_validator("base_url", mode="before")
+    @classmethod
+    def _validate_base_url(cls, v):
+        if v is not None:
+            if not v.startswith(("http://", "https://")):
+                raise ValueError("base_url must start with http:// or https://")
+            _check_ssrf(v)
+        return v
 
 
 class TestLLMResponse(BaseModel):
@@ -296,7 +370,13 @@ class UpdateResourceLimitsRequest(BaseModel):
 
 
 class UpdateAdminKeyRequest(BaseModel):
-    new_key: str = Field(..., min_length=8, description="New admin API key (min 8 chars)")
+    new_key: str = Field(
+        ...,
+        min_length=8,
+        max_length=256,
+        pattern=r'^[A-Za-z0-9\-_./+=]+$',
+        description="New admin API key (min 8 chars)",
+    )
 
 
 # Generic
