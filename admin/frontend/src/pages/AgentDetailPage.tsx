@@ -154,7 +154,7 @@ export function AgentDetailPage() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate("/admin")}
+            onClick={() => navigate("/")}
             className="h-9 px-3 text-sm border border-border hover:bg-accent rounded"
           >
             &larr; {t.back}
@@ -269,7 +269,7 @@ export function AgentDetailPage() {
             doAction(() => adminApi.stopAgent(agentId), t.stop);
           } else if (confirmDialog.action === "delete") {
             doAction(() => adminApi.deleteAgent(agentId, true), t.delete).then(
-              () => navigate("/admin")
+              () => navigate("/")
             );
           }
         }}

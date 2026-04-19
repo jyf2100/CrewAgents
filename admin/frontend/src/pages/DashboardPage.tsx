@@ -63,7 +63,7 @@ export function DashboardPage() {
           <p className="text-sm text-muted-foreground">{t.dashboardSubtitle}</p>
         </div>
         <button
-          onClick={() => navigate("/admin/agents/new")}
+          onClick={() => navigate("/create")}
           className="h-9 px-4 text-sm rounded bg-primary text-white hover:bg-primary/90"
         >
           + {t.createAgent}
@@ -84,7 +84,7 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* "+ New Agent" card */}
         <button
-          onClick={() => navigate("/admin/agents/new")}
+          onClick={() => navigate("/create")}
           className="rounded-lg border-2 border-dashed border-border hover:border-primary/50 bg-card/50 p-4 flex flex-col items-center justify-center gap-2 min-h-[180px] transition-colors"
         >
           <span className="text-3xl text-muted-foreground">+</span>

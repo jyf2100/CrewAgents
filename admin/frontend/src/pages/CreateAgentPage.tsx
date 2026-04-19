@@ -290,7 +290,7 @@ export function CreateAgentPage() {
 
       // Redirect after a short delay
       setTimeout(() => {
-        navigate(`/admin/agents/hermes-gateway-${form.agentNumber}`);
+        navigate(`/agents/hermes-gateway-${form.agentNumber}`);
       }, 1500);
     } catch (err) {
       const msg =
@@ -330,7 +330,7 @@ export function CreateAgentPage() {
           </p>
         </div>
         <button
-          onClick={() => navigate("/admin")}
+          onClick={() => navigate("/")}
           className="h-9 px-4 text-sm border border-border hover:bg-accent rounded"
         >
           {t.cancel}

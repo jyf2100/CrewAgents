@@ -172,7 +172,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
                 className="w-full text-left px-3 py-1.5 hover:bg-accent"
                 onClick={() => {
                   setMenuOpen(false);
-                  navigate(`/admin/agents/${agent.id}`);
+                  navigate(`/agents/${agent.id}`);
                 }}
               >
                 {t.logs}
@@ -253,7 +253,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
             <span>{agent.age_human}</span>
           </div>
           <button
-            onClick={() => navigate(`/admin/agents/${agent.id}`)}
+            onClick={() => navigate(`/agents/${agent.id}`)}
             className="text-xs text-primary hover:underline"
           >
             {t.view} &rarr;
