@@ -247,7 +247,7 @@ class K8sClient:
     async def get_pod_metrics(self, pod_name: str) -> Optional[dict]:
         try:
             from kubernetes.client import CustomObjectsApi
-            co = CustomObjectsApi()
+            co = CustomObjectsApi(api_client=self.apps_api.api_client)
             return await self._k8s_call(
                 co.get_namespaced_custom_object,
                 group="metrics.k8s.io", version="v1beta1",
@@ -255,3 +255,17 @@ class K8sClient:
             )
         except Exception:
             return None
+
+    async def get_node_metrics(self) -> list[dict]:
+        """Get node-level metrics from metrics-server."""
+        try:
+            from kubernetes.client import CustomObjectsApi
+            co = CustomObjectsApi(api_client=self.apps_api.api_client)
+            result = await self._k8s_call(
+                co.list_cluster_custom_object,
+                group="metrics.k8s.io", version="v1beta1",
+                plural="nodes",
+            )
+            return result.get("items", [])
+        except Exception:
+            return []

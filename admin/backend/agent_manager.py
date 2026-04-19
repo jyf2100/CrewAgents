@@ -78,12 +78,19 @@ class AgentManager:
             created = dep.metadata.creation_timestamp
             age_human = format_age(created)
 
+            # Resource usage from metrics-server
+            resources = ResourceUsage()
+            try:
+                resources = await self.get_resource_usage(agent_num)
+            except Exception:
+                logger.debug("Failed to get resource usage for agent %s", name)
+
             agents.append(AgentSummary(
                 id=agent_num,
                 name=name,
                 status=status,
                 url_path=f"/agent{agent_num}" if agent_num > 0 else "",
-                resources=ResourceUsage(),
+                resources=resources,
                 restart_count=0,
                 created_at=created,
                 age_human=age_human,
@@ -476,6 +483,34 @@ class AgentManager:
         return EventListResponse(agent_number=agent_id, events=events)
 
     # --- Resource Usage ---
+    @staticmethod
+    def _parse_cpu(value: str) -> Optional[float]:
+        """Parse K8s CPU quantity string to cores (float)."""
+        try:
+            if value.endswith("n"):
+                return int(value[:-1]) / 1e9
+            elif value.endswith("m"):
+                return int(value[:-1]) / 1000
+            else:
+                return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_memory(value: str) -> Optional[int]:
+        """Parse K8s memory quantity string to bytes."""
+        try:
+            if value.endswith("Ki"):
+                return int(value[:-2]) * 1024
+            elif value.endswith("Mi"):
+                return int(value[:-2]) * 1024 * 1024
+            elif value.endswith("Gi"):
+                return int(value[:-2]) * 1024 * 1024 * 1024
+            else:
+                return int(value)
+        except (ValueError, TypeError):
+            return None
+
     async def get_resource_usage(self, agent_id: int) -> ResourceUsage:
         name = deployment_name(agent_id)
         pods = await self.k8s.get_pods_for_deployment(name)
@@ -488,12 +523,12 @@ class AgentManager:
                         usage = c.get("usage", {})
                         cpu = usage.get("cpu", "0")
                         mem = usage.get("memory", "0")
-                        if cpu.endswith("n"):
-                            resources.cpu_cores = (resources.cpu_cores or 0) + int(cpu[:-1]) / 1e9
-                        elif cpu.endswith("m"):
-                            resources.cpu_cores = (resources.cpu_cores or 0) + int(cpu[:-1]) / 1000
-                        if mem.endswith("Ki"):
-                            resources.memory_bytes = (resources.memory_bytes or 0) + int(mem[:-2]) * 1024
+                        cpu_val = self._parse_cpu(cpu)
+                        mem_val = self._parse_memory(mem)
+                        if cpu_val is not None:
+                            resources.cpu_cores = (resources.cpu_cores or 0) + cpu_val
+                        if mem_val is not None:
+                            resources.memory_bytes = (resources.memory_bytes or 0) + mem_val
         return resources
 
     # --- Backup ---
@@ -617,14 +652,47 @@ class AgentManager:
         results = await asyncio.gather(
             self.k8s.list_nodes(),
             self.k8s.list_deployments(),
+            self.k8s.get_node_metrics(),
             return_exceptions=True,
         )
         nodes = results[0] if not isinstance(results[0], Exception) else []
+        node_metrics_list = results[2] if not isinstance(results[2], Exception) else []
+        # Build lookup: node_name -> metrics dict
+        metrics_by_name = {}
+        for nm in (node_metrics_list or []):
+            name = nm.get("metadata", {}).get("name", "")
+            metrics_by_name[name] = nm
         try:
             node_infos = []
             for node in nodes:
                 cpu_cap = node.status.capacity.get("cpu", "?")
                 mem_cap = node.status.capacity.get("memory", "?")
+                cpu_usage_pct = None
+                mem_usage_pct = None
+                # Calculate usage percentages from metrics
+                nm = metrics_by_name.get(node.metadata.name)
+                if nm:
+                    usage = nm.get("usage", {})
+                    cpu_usage = usage.get("cpu", "0")
+                    mem_usage = usage.get("memory", "0")
+                    # Parse capacity
+                    try:
+                        cpu_total = int(cpu_cap) if isinstance(cpu_cap, str) and cpu_cap.isdigit() else None
+                    except (ValueError, TypeError):
+                        cpu_total = None
+                    try:
+                        mem_total_ki = int(mem_cap.replace("Ki", "")) if isinstance(mem_cap, str) and mem_cap.endswith("Ki") else None
+                    except (ValueError, TypeError):
+                        mem_total_ki = None
+                    if cpu_total:
+                        cpu_val = self._parse_cpu(cpu_usage)
+                        if cpu_val is not None:
+                            cpu_usage_pct = round(cpu_val / cpu_total * 100, 1)
+                    if mem_total_ki:
+                        mem_val_bytes = self._parse_memory(mem_usage)
+                        if mem_val_bytes is not None:
+                            mem_total_bytes = mem_total_ki * 1024
+                            mem_usage_pct = round(mem_val_bytes / mem_total_bytes * 100, 1)
                 disk_total_gb = None
                 disk_used_gb = None
                 try:
@@ -635,6 +703,7 @@ class AgentManager:
                     pass
                 node_infos.append(NodeInfo(
                     name=node.metadata.name, cpu_capacity=cpu_cap, memory_capacity=mem_cap,
+                    cpu_usage_percent=cpu_usage_pct, memory_usage_percent=mem_usage_pct,
                     disk_total_gb=disk_total_gb, disk_used_gb=disk_used_gb,
                 ))
         except Exception:
