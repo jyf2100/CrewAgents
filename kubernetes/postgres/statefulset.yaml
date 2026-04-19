@@ -15,12 +15,17 @@ spec:
         app: postgres
     spec:
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
+        fsGroup: 999
+      initContainers:
+        - name: fix-permissions
+          image: postgres:16
+          command: ["bash", "-c", "chown -R postgres:postgres /var/lib/postgresql/data && chmod -R 755 /var/lib/postgresql/data"]
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
       containers:
         - name: postgres
-          image: postgres:16-alpine
+          image: postgres:16
           ports:
             - containerPort: 5432
           env:
@@ -53,12 +58,10 @@ spec:
         - name: postgres-init
           configMap:
             name: postgres-init-script
-        # NOTE: Using emptyDir for testing. Data is lost on pod restart.
-        # PRODUCTION: Uncomment the volumeClaimTemplates section below and delete
-        # this emptyDir volume. Requires a StorageClass to be available.
-        # Run: kubectl get storageclass  # to see available classes
         - name: postgres-data
-          emptyDir: {}
+          hostPath:
+            path: /data/hermes-postgres
+            type: DirectoryOrCreate
 ---
 # ConfigMap for init.sql (auto-executed by postgres on first startup)
 apiVersion: v1

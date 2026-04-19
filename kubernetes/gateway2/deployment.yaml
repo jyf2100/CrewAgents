@@ -1,17 +1,17 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: hermes-gateway
+  name: hermes-gateway-2
   namespace: hermes-agent
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: hermes-gateway
+      app: hermes-gateway-2
   template:
     metadata:
       labels:
-        app: hermes-gateway
+        app: hermes-gateway-2
     spec:
       serviceAccountName: hermes-gateway
       containers:
@@ -32,7 +32,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: hermes-db-secret
-                  key: api_key
+                  key: api_key_2
             - name: GATEWAY_ALLOW_ALL_USERS
               value: "true"
             - name: K8S_NAMESPACE
@@ -70,13 +70,13 @@ spec:
       volumes:
         - name: hermes-data
           hostPath:
-            path: /data/hermes/agent1
+            path: /data/hermes/agent2
             type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: hermes-gateway
+  name: hermes-gateway-2
   namespace: hermes-agent
 spec:
   type: ClusterIP
@@ -85,4 +85,4 @@ spec:
       port: 8642
       targetPort: 8642
   selector:
-    app: hermes-gateway
+    app: hermes-gateway-2

@@ -3,33 +3,32 @@ kind: Ingress
 metadata:
   name: hermes-ingress
   namespace: hermes-agent
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
-  tls:
-    - hosts:
-        - hermes.local
-      secretName: hermes-tls-secret
+  ingressClassName: nginx
   rules:
-    - host: hermes.local
-      http:
+    - http:
         paths:
-          - path: /api
+          - path: /agent1(/|$)(.*)
             pathType: Prefix
             backend:
               service:
                 name: hermes-gateway
                 port:
                   number: 8642
-          - path: /dashboard
+          - path: /agent2(/|$)(.*)
             pathType: Prefix
             backend:
               service:
-                name: hermes-gateway
+                name: hermes-gateway-2
                 port:
-                  number: 9119
-          - path: /webui
+                  number: 8642
+          - path: /agent3(/|$)(.*)
             pathType: Prefix
             backend:
               service:
-                name: hermes-webui
+                name: hermes-gateway-3
                 port:
-                  number: 8080
+                  number: 8642
