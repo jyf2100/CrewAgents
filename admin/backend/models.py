@@ -63,6 +63,8 @@ class LLMProvider(str, Enum):
     openai = "openai"
     gemini = "gemini"
     zhipuai = "zhipuai"
+    minimax = "minimax"
+    kimi = "kimi"
     custom = "custom"
 
 

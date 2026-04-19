@@ -23,6 +23,8 @@ PROVIDER_URL_MAP = {
     "openai":     "https://api.openai.com/v1",
     "gemini":     "https://generativelanguage.googleapis.com/v1beta",
     "zhipuai":    "https://open.bigmodel.cn/api/paas/v4",
+    "minimax":    "https://api.minimaxi.com/anthropic/v1",
+    "kimi":       "https://api.moonshot.cn/v1",
     "custom":     "https://api.example.com/v1",
 }
 

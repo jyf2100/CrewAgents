@@ -6,16 +6,25 @@ import yaml
 from models import ResourceSpec, TemplateResponse, TemplateTypeResponse
 from constants import PROVIDER_URL_MAP
 
+# Provider -> environment variable name mapping
+PROVIDER_KEY_MAP = {
+    "openrouter": "OPENROUTER_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "zhipuai": "GLM_API_KEY",
+    "minimax": "MINIMAX_API_KEY",
+    "kimi": "MOONSHOT_API_KEY",
+    "custom": "CUSTOM_API_KEY",
+}
+
+
+def deployment_name(agent_number: int) -> str:
+    """Map agent_number to K8s Deployment name (agent 0 -> hermes-gateway, n -> hermes-gateway-n)."""
+    return "hermes-gateway" if agent_number == 0 else f"hermes-gateway-{agent_number}"
+
 
 class TemplateGenerator:
-    @staticmethod
-    def _deployment_name(agent_number: int) -> str:
-        """Map agent_number to the K8s Deployment name.
-
-        Agent 0 uses the bare name "hermes-gateway" (no suffix).
-        Agents 1+ use "hermes-gateway-{number}".
-        """
-        return "hermes-gateway" if agent_number == 0 else f"hermes-gateway-{agent_number}"
 
     def __init__(self, templates_dir: str | None = None):
         if templates_dir is None:
@@ -44,23 +53,19 @@ class TemplateGenerator:
     def render_env(self, llm_config, extra_env: list | None = None) -> str:
         """Generate .env content from LLM config."""
         lines = []
-        provider = llm_config.provider if hasattr(llm_config, 'provider') else llm_config.get('provider', 'openrouter')
-        api_key = llm_config.api_key if hasattr(llm_config, 'api_key') else llm_config.get('api_key', '')
+        if isinstance(llm_config, dict):
+            provider = str(llm_config.get('provider', 'openrouter'))
+            api_key = llm_config.get('api_key', '')
+        else:
+            provider = llm_config.provider.value if hasattr(llm_config.provider, 'value') else str(llm_config.provider)
+            api_key = llm_config.api_key
 
         # Read template as base
         template = self._read_template(".env.template")
         lines.append(template if template else "# Hermes Agent Environment Configuration\n")
 
         # Inject API key
-        key_map = {
-            "openrouter": "OPENROUTER_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "gemini": "GEMINI_API_KEY",
-            "zhipuai": "GLM_API_KEY",
-            "custom": "CUSTOM_API_KEY",
-        }
-        env_key = key_map.get(provider, "CUSTOM_API_KEY")
+        env_key = PROVIDER_KEY_MAP.get(provider, "CUSTOM_API_KEY")
         lines.append(f"\n{env_key}={api_key}\n")
 
         if extra_env:
@@ -73,11 +78,12 @@ class TemplateGenerator:
         return "".join(lines)
 
     def render_config_yaml(self, default_model: str = "anthropic/claude-sonnet-4-20250514",
-                           provider: str = "auto", base_url: str | None = None,
+                           provider: str = "openrouter", base_url: str | None = None,
                            terminal_enabled: bool = True, browser_enabled: bool = False,
                            streaming_enabled: bool = True, memory_enabled: bool = True,
                            session_reset_enabled: bool = False) -> str:
         """Generate config.yaml content."""
+        provider = provider.value if hasattr(provider, "value") else provider
         resolved_url = base_url or PROVIDER_URL_MAP.get(provider, PROVIDER_URL_MAP["openrouter"])
         config_data = {
             "model": {
@@ -96,7 +102,7 @@ class TemplateGenerator:
     def render_deployment(self, agent_number: int, secret_name: str,
                           resources: ResourceSpec, namespace: str = "hermes-agent") -> dict:
         """Return a dict for K8s Deployment creation."""
-        name = self._deployment_name(agent_number)
+        name = deployment_name(agent_number)
         return {
             "apiVersion": "apps/v1",
             "kind": "Deployment",
@@ -155,7 +161,7 @@ class TemplateGenerator:
         }
 
     def render_service(self, agent_number: int, namespace: str = "hermes-agent") -> dict:
-        name = self._deployment_name(agent_number)
+        name = deployment_name(agent_number)
         return {
             "apiVersion": "v1",
             "kind": "Service",
@@ -175,26 +181,21 @@ class TemplateGenerator:
             soul_md_template=self._read_template("SOUL.md.template"),
         )
 
+    _FILE_MAP = {
+        "deployment": "deployment.yaml",
+        "env": ".env.template",
+        "config": "config.yaml.template",
+        "soul": "SOUL.md.template",
+    }
+
     def get_template(self, template_type: str) -> str:
-        file_map = {
-            "deployment": "deployment.yaml",
-            "env": ".env.template",
-            "config": "config.yaml.template",
-            "soul": "SOUL.md.template",
-        }
-        filename = file_map.get(template_type)
+        filename = self._FILE_MAP.get(template_type)
         if not filename:
             raise ValueError(f"Unknown template type: {template_type}")
         return self._read_template(filename)
 
     def set_template(self, template_type: str, content: str) -> None:
-        file_map = {
-            "deployment": "deployment.yaml",
-            "env": ".env.template",
-            "config": "config.yaml.template",
-            "soul": "SOUL.md.template",
-        }
-        filename = file_map.get(template_type)
+        filename = self._FILE_MAP.get(template_type)
         if not filename:
             raise ValueError(f"Unknown template type: {template_type}")
         self._write_template(filename, content)

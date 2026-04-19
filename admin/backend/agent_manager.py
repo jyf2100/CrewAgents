@@ -8,9 +8,11 @@ import secrets
 import shutil
 import tarfile
 import time
+import logging
 from typing import Any, AsyncGenerator, Optional
 
 import httpx
+import yaml
 from fastapi import HTTPException, Request
 
 from models import (
@@ -23,18 +25,12 @@ from models import (
 from k8s_client import K8sClient
 from config_manager import ConfigManager
 from constants import SECRET_PATTERNS, PROVIDER_URL_MAP, format_age
+from templates import deployment_name
+
+logger = logging.getLogger(__name__)
 
 
 class AgentManager:
-    @staticmethod
-    def _deployment_name(agent_number: int) -> str:
-        """Map agent_number to the K8s Deployment name.
-
-        Agent 0 uses the bare name "hermes-gateway" (no suffix).
-        Agents 1+ use "hermes-gateway-{number}".
-        """
-        return "hermes-gateway" if agent_number == 0 else f"hermes-gateway-{agent_number}"
-
     def __init__(self, k8s: K8sClient, namespace: str = "hermes-agent",
                  config_mgr: ConfigManager | None = None):
         self.k8s = k8s
@@ -43,6 +39,21 @@ class AgentManager:
         from templates import TemplateGenerator
         self.tpl = TemplateGenerator()
         self._default_resources = DefaultResourceLimits()
+
+    @staticmethod
+    def _resolve_status(replicas: int, available: int, conditions=None) -> AgentStatus:
+        """Determine agent status from deployment state."""
+        if replicas == 0:
+            return AgentStatus.stopped
+        if available >= replicas:
+            return AgentStatus.running
+        if conditions:
+            for c in conditions:
+                if c.type == "Progressing" and c.status == "False":
+                    return AgentStatus.failed
+                if c.type == "Available" and c.status == "False":
+                    return AgentStatus.failed
+        return AgentStatus.pending
 
     # --- List Agents ---
     async def list_agents(self) -> AgentListResponse:
@@ -53,28 +64,15 @@ class AgentManager:
             if not name.startswith("hermes-gateway"):
                 continue
             # Extract agent number from name
-            try:
-                agent_num = int(name.replace("hermes-gateway-", "").replace("hermes-gateway", "0") or "0")
-            except ValueError:
-                agent_num = 0
+            m = re.fullmatch(r"hermes-gateway(?:-(\d+))?", name)
+            if not m:
+                continue
+            agent_num = int(m.group(1) or 0)
 
             replicas = dep.spec.replicas or 0
             available = dep.status.available_replicas or 0
 
-            # Determine status
-            if replicas == 0:
-                status = AgentStatus.stopped
-            elif available >= replicas:
-                status = AgentStatus.running
-            elif dep.status.conditions:
-                for c in dep.status.conditions:
-                    if c.type == "Progressing" and c.status == "False":
-                        status = AgentStatus.failed
-                        break
-                else:
-                    status = AgentStatus.pending
-            else:
-                status = AgentStatus.pending
+            status = self._resolve_status(replicas, available, dep.status.conditions)
 
             # Age
             created = dep.metadata.creation_timestamp
@@ -94,7 +92,7 @@ class AgentManager:
 
     # --- Get Agent Detail ---
     async def get_agent_detail(self, agent_id: int) -> AgentDetailResponse:
-        name = self._deployment_name(agent_id)
+        name = deployment_name(agent_id)
         dep = await self.k8s.get_deployment(name)
         if dep is None:
             raise HTTPException(404, f"Agent {name} not found")
@@ -102,12 +100,7 @@ class AgentManager:
         replicas = dep.spec.replicas or 0
         available = dep.status.available_replicas or 0
 
-        if replicas == 0:
-            status = AgentStatus.stopped
-        elif available >= replicas:
-            status = AgentStatus.running
-        else:
-            status = AgentStatus.pending
+        status = self._resolve_status(replicas, available)
 
         pods_info = []
         pods = await self.k8s.get_pods_for_deployment(name)
@@ -163,7 +156,7 @@ class AgentManager:
     async def create_agent(self, req: CreateAgentRequest) -> CreateAgentResponse:
         steps: list[CreateStepStatus] = []
         agent_num = req.agent_number
-        name = self._deployment_name(agent_num)
+        name = deployment_name(agent_num)
         secret_name = f"{name}-secret"
         data_dir = f"/data/hermes/agent{agent_num}"
 
@@ -250,6 +243,11 @@ class AgentManager:
         step = CreateStepStatus(step=5, label="Updating Ingress", status="running")
         steps.append(step)
         try:
+            # Remove stale ingress path first (in case of previous failed deployment)
+            try:
+                await self.k8s.remove_ingress_path(f"/agent{agent_num}")
+            except Exception as e:
+                logger.debug("Stale ingress cleanup: %s", e)
             await self.k8s.add_ingress_path(
                 path=f"/agent{agent_num}", service_name=name, service_port=8642,
             )
@@ -263,24 +261,24 @@ class AgentManager:
             await self.k8s.delete_secret(secret_name)
             return CreateAgentResponse(agent_number=agent_num, name=name, created=False, steps=steps)
 
-        # Step 5: Wait for ready
+        # Step 5: Wait for ready (quick check, max 30s to avoid nginx 504)
         step = CreateStepStatus(step=6, label="Waiting for ready", status="running")
         steps.append(step)
         try:
-            ready = await self.k8s.wait_deployment_ready(name, timeout_seconds=300, poll_interval_seconds=5)
-            step.status = "done" if ready else "failed"
+            ready = await self.k8s.wait_deployment_ready(name, timeout_seconds=30, poll_interval_seconds=5)
+            step.status = "done" if ready else "running"
             if not ready:
-                step.message = "Deployment did not become ready within 300s"
+                step.message = "Deployment is still starting, check dashboard for status"
         except Exception as e:
-            step.status = "failed"
-            step.message = str(e)
+            step.status = "running"
+            step.message = f"Status check skipped: {e}"
 
-        created = step.status == "done"
+        created = True  # Resources created successfully
         return CreateAgentResponse(agent_number=agent_num, name=name, created=created, steps=steps)
 
     # --- Delete Agent ---
     async def delete_agent(self, agent_id: int, backup: bool = True) -> MessageResponse:
-        name = self._deployment_name(agent_id)
+        name = deployment_name(agent_id)
         secret_name = f"{name}-secret"
         dep = await self.k8s.get_deployment(name)
         if dep is None:
@@ -289,31 +287,31 @@ class AgentManager:
             try:
                 await self._create_backup(agent_id)
             except Exception as e:
-                raise HTTPException(500, f"Backup failed, aborting deletion: {e}")
-        try:
-            await self.k8s.delete_deployment(name)
-        except Exception:
-            pass
-        try:
-            await self.k8s.delete_service(name)
-        except Exception:
-            pass
-        try:
-            await self.k8s.delete_secret(secret_name)
-        except Exception:
-            pass
+                logger.warning("Backup failed for agent %s, proceeding with delete: %s", agent_id, e)
+        # Remove ingress path FIRST to avoid leftovers on partial failure
         try:
             await self.k8s.remove_ingress_path(f"/agent{agent_id}")
-        except Exception:
-            pass
-        if backup:
-            data_dir = f"/data/hermes/agent{agent_id}"
-            shutil.rmtree(data_dir, ignore_errors=True)
+        except Exception as e:
+            logger.warning("Failed to remove ingress path for agent %s: %s", agent_id, e)
+        try:
+            await self.k8s.delete_deployment(name)
+        except Exception as e:
+            logger.warning("Failed to delete deployment %s: %s", name, e)
+        try:
+            await self.k8s.delete_service(name)
+        except Exception as e:
+            logger.warning("Failed to delete service %s: %s", name, e)
+        try:
+            await self.k8s.delete_secret(secret_name)
+        except Exception as e:
+            logger.warning("Failed to delete secret %s: %s", secret_name, e)
+        data_dir = f"/data/hermes/agent{agent_id}"
+        shutil.rmtree(data_dir, ignore_errors=True)
         return MessageResponse(message=f"Agent {name} deleted")
 
     # --- Restart Agent ---
     async def restart_agent(self, agent_id: int) -> ActionResponse:
-        name = self._deployment_name(agent_id)
+        name = deployment_name(agent_id)
         dep = await self.k8s.get_deployment(name)
         if dep is None:
             raise HTTPException(404, f"Agent {name} not found")
@@ -332,7 +330,7 @@ class AgentManager:
 
     # --- Scale Agent ---
     async def scale_agent(self, agent_id: int, replicas: int, action: str) -> ActionResponse:
-        name = self._deployment_name(agent_id)
+        name = deployment_name(agent_id)
         dep = await self.k8s.get_deployment(name)
         if dep is None:
             raise HTTPException(404, f"Agent {name} not found")
@@ -342,7 +340,7 @@ class AgentManager:
 
     # --- Health Check ---
     async def check_health(self, agent_id: int) -> HealthResponse:
-        service_name = self._deployment_name(agent_id)
+        service_name = deployment_name(agent_id)
         url = f"http://{service_name}.{self.namespace}.svc.cluster.local:8642/health"
         start = time.monotonic()
         try:
@@ -383,7 +381,7 @@ class AgentManager:
         """
         import queue as _queue_mod
 
-        name = self._deployment_name(agent_id)
+        name = deployment_name(agent_id)
         pod_name = await self.k8s.get_first_pod_name(name)
         if not pod_name:
             yield f"event: error\ndata: {json.dumps({'message': 'No running pod found'})}\n\n"
@@ -454,7 +452,7 @@ class AgentManager:
 
     # --- Events ---
     async def get_events(self, agent_id: int) -> EventListResponse:
-        name = self._deployment_name(agent_id)
+        name = deployment_name(agent_id)
         raw_events = await self.k8s.get_events(name)
         events = []
         for e in raw_events:
@@ -479,7 +477,7 @@ class AgentManager:
 
     # --- Resource Usage ---
     async def get_resource_usage(self, agent_id: int) -> ResourceUsage:
-        name = self._deployment_name(agent_id)
+        name = deployment_name(agent_id)
         pods = await self.k8s.get_pods_for_deployment(name)
         resources = ResourceUsage()
         for pod in pods:
@@ -500,8 +498,7 @@ class AgentManager:
 
     # --- Backup ---
     async def _create_backup(self, agent_id: int) -> str:
-        import yaml as pyyaml
-        name = self._deployment_name(agent_id)
+        name = deployment_name(agent_id)
         secret_name = f"{name}-secret"
         timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
         filename = f"agent{agent_id}-{timestamp}.tar.gz"
@@ -513,7 +510,7 @@ class AgentManager:
             try:
                 dep = await self.k8s.get_deployment(name)
                 if dep:
-                    yaml_bytes = pyyaml.dump(dep.to_dict(), default_flow_style=False).encode()
+                    yaml_bytes = yaml.dump(dep.to_dict(), default_flow_style=False).encode()
                     info = tarfile.TarInfo(name="k8s-resources/deployment.yaml")
                     info.size = len(yaml_bytes)
                     tar.addfile(info, io.BytesIO(yaml_bytes))
@@ -522,7 +519,7 @@ class AgentManager:
             try:
                 svc = await self.k8s.get_service(name)
                 if svc:
-                    yaml_bytes = pyyaml.dump(svc.to_dict(), default_flow_style=False).encode()
+                    yaml_bytes = yaml.dump(svc.to_dict(), default_flow_style=False).encode()
                     info = tarfile.TarInfo(name="k8s-resources/service.yaml")
                     info.size = len(yaml_bytes)
                     tar.addfile(info, io.BytesIO(yaml_bytes))
@@ -582,6 +579,10 @@ class AgentManager:
             url = f"{base_url.rstrip('/')}/messages"
             payload = {"model": req.model, "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 5}
             headers = {"Content-Type": "application/json", "x-api-key": req.api_key, "anthropic-version": "2023-06-01"}
+        elif req.provider == "minimax" and "minimaxi.com" in base_url:
+            url = f"{base_url.rstrip('/')}/messages"
+            payload = {"model": req.model, "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 5}
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {req.api_key}", "anthropic-version": "2023-06-01"}
         start = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -613,8 +614,13 @@ class AgentManager:
 
     # --- Cluster Status ---
     async def get_cluster_status(self) -> ClusterStatusResponse:
+        results = await asyncio.gather(
+            self.k8s.list_nodes(),
+            self.k8s.list_deployments(),
+            return_exceptions=True,
+        )
+        nodes = results[0] if not isinstance(results[0], Exception) else []
         try:
-            nodes = await self.k8s.list_nodes()
             node_infos = []
             for node in nodes:
                 cpu_cap = node.status.capacity.get("cpu", "?")
@@ -633,9 +639,10 @@ class AgentManager:
                 ))
         except Exception:
             node_infos = []
+        deps = results[1] if not isinstance(results[1], Exception) else []
         # Count agents
         try:
-            deps = await self.k8s.list_deployments()
+            deps = deps if deps else []
             total = sum(1 for d in deps if d.metadata.name.startswith("hermes-gateway"))
             running = sum(1 for d in deps if d.metadata.name.startswith("hermes-gateway") and (d.status.available_replicas or 0) > 0)
         except Exception:
