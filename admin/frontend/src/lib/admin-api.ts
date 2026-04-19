@@ -65,7 +65,19 @@ async function adminFetch<T>(
     let detail = `Request failed (${res.status})`;
     try {
       const body = await res.json();
-      detail = body.detail || body.message || detail;
+      if (typeof body.detail === "string") {
+        detail = body.detail;
+      } else if (Array.isArray(body.detail)) {
+        // Pydantic validation errors: [{type, loc, msg, ...}]
+        detail = body.detail
+          .map((e: { msg?: string; loc?: string[] }) => {
+            const field = e.loc ? e.loc.join(".") : "";
+            return field ? `${field}: ${e.msg}` : e.msg;
+          })
+          .join("; ");
+      } else if (body.message) {
+        detail = body.message;
+      }
     } catch {
       // ignore JSON parse errors
     }

@@ -11,9 +11,9 @@ export function AdminLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen h-screen flex flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <header className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-40">
+      <header className="border-b border-border bg-background/95 backdrop-blur shrink-0 z-40">
         <div className="mx-auto max-w-7xl flex h-14 items-center justify-between px-4">
           {/* Left: Title + Nav */}
           <div className="flex items-center gap-6">
@@ -57,7 +57,7 @@ export function AdminLayout() {
       </header>
 
       {/* Main content */}
-      <main className="mx-auto max-w-7xl px-4 py-6">
+      <main className="mx-auto max-w-7xl w-full px-4 py-6 flex-1 min-h-0 overflow-hidden">
         <Outlet />
       </main>
     </div>

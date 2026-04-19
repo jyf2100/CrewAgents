@@ -55,6 +55,14 @@ const PROVIDER_DEFAULTS: Record<
     model: "glm-4-plus",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
   },
+  minimax: {
+    model: "MiniMax-M1",
+    baseUrl: "https://api.minimaxi.com/anthropic/v1",
+  },
+  kimi: {
+    model: "moonshot-v1-128k",
+    baseUrl: "https://api.moonshot.cn/v1",
+  },
   custom: {
     model: "",
     baseUrl: "",
@@ -67,6 +75,8 @@ const PROVIDER_OPTIONS = [
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Gemini" },
   { value: "zhipuai", label: "ZhipuAI" },
+  { value: "minimax", label: "MiniMax" },
+  { value: "kimi", label: "Kimi" },
   { value: "custom", label: "Custom" },
 ];
 
@@ -320,9 +330,9 @@ export function CreateAgentPage() {
 
   // ----- Step content -----
   return (
-    <div>
+    <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 shrink-0">
         <div>
           <h1 className="text-2xl font-bold">{t.createTitle}</h1>
           <p className="text-sm text-muted-foreground">
@@ -338,10 +348,13 @@ export function CreateAgentPage() {
       </div>
 
       {/* Step indicator */}
-      <StepIndicator currentStep={currentStep} t={t} />
+      <div className="shrink-0 mb-4">
+        <StepIndicator currentStep={currentStep} t={t} />
+      </div>
 
       {/* Step content */}
-      <div className="rounded-lg border border-border bg-card p-6">
+      <div className="rounded-lg border border-border bg-card flex flex-col flex-1 min-h-0">
+        <div className="p-6 overflow-y-auto flex-1 min-h-0">
         {currentStep === 0 && (
           <StepBasicInfo
             form={form}
@@ -377,9 +390,11 @@ export function CreateAgentPage() {
           />
         )}
 
-        {/* Navigation buttons */}
+        </div>
+
+        {/* Navigation buttons - always visible at bottom */}
         {!deploying && (
-          <div className="flex justify-between mt-6 pt-4 border-t border-border">
+          <div className="flex justify-between items-center px-6 py-3 border-t border-border bg-card shrink-0">
             <button
               onClick={handlePrev}
               disabled={currentStep === 0}
