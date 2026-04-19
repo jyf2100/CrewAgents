@@ -15,6 +15,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response as StarletteResponse
 from pathlib import Path
 
 from models import (
@@ -59,6 +61,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# SPA middleware -- serve index.html for browser navigation
+# ---------------------------------------------------------------------------
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+class _SpaFallbackMiddleware(BaseHTTPMiddleware):
+    """Serve SPA index.html for browser navigation that hits API routes.
+
+    The Ingress rewrite-target strips /admin prefix from ALL paths, so
+    browser requests like /admin/agents/2 become /agents/2, which matches
+    the API route instead of the SPA. This middleware detects browser
+    navigation (Accept: text/html) and serves the SPA instead.
+    """
+
+    # Paths that should always go to API (even from browser)
+    API_ONLY_PREFIXES = ("/health",)
+
+    async def dispatch(self, request: Request, call_next):
+        accept = request.headers.get("accept", "")
+        path = request.url.path
+
+        # Only intercept GET requests that want HTML
+        if request.method != "GET" or "text/html" not in accept:
+            return await call_next(request)
+
+        # Skip health endpoint (used by K8s probes)
+        if path in self.API_ONLY_PREFIXES or path.startswith("/admin/"):
+            return await call_next(request)
+
+        # Try static assets first
+        if path.startswith("/assets/") or (path != "/" and "." in path.split("/")[-1]):
+            file_path = STATIC_DIR / path.lstrip("/")
+            if file_path.is_file():
+                return FileResponse(file_path)
+
+        # Serve SPA index.html for all other browser navigation
+        if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
+            return FileResponse(STATIC_DIR / "index.html")
+
+        return await call_next(request)
+
+
+app.add_middleware(_SpaFallbackMiddleware)
 
 
 # ---------------------------------------------------------------------------
