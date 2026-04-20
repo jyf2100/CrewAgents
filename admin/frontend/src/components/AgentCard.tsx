@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AgentListItem } from "../lib/admin-api";
-import { adminApi, AdminApiError, getAdminKey } from "../lib/admin-api";
+import { adminApi, getAdminKey } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import {
   formatBytes,
   formatMillicores,
+  getApiError,
   getBarColor,
   statusDotColor,
   statusLabel,
@@ -13,9 +14,6 @@ import {
 } from "../lib/utils";
 import { showToast } from "../lib/toast";
 import { ConfirmDialog } from "./ConfirmDialog";
-
-// Re-export statusOrder for DashboardPage
-export { statusOrder };
 
 // ---------------------------------------------------------------------------
 // AgentCard component
@@ -74,10 +72,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
       showToast(`${label} - OK`);
       onActionDone();
     } catch (err) {
-      showToast(
-        `${label} - ${err instanceof AdminApiError ? err.detail : t.errorGeneric}`,
-        "error"
-      );
+      showToast(`${label} - ${getApiError(err, t.errorGeneric)}`, "error");
     } finally {
       setActionLoading(false);
       setMenuOpen(false);
@@ -101,7 +96,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
       URL.revokeObjectURL(url);
     } catch (err) {
       showToast(
-        `${t.backup} - ${err instanceof AdminApiError ? err.detail : t.errorGeneric}`,
+        `${t.backup} - ${getApiError(err, t.errorGeneric)}`,
         "error"
       );
     }
@@ -238,7 +233,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
                 : "-"}
             </span>
           </div>
-          <div className="h-1.5 rounded-full bg-[rgba(123,45,142,0.2)] overflow-hidden">
+          <div className="h-1.5 rounded-full bg-bar-track overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${getBarColor(cpuPct)}`}
               style={{ width: `${cpuPct}%` }}
@@ -256,9 +251,9 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
               {memLimit !== null ? formatBytes(memLimit) : "-"}
             </span>
           </div>
-          <div className="h-1.5 rounded-full bg-[rgba(123,45,142,0.2)] overflow-hidden">
+          <div className="h-1.5 rounded-full bg-bar-track overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${memPct !== null ? getBarColor(memPct) : "bg-[rgba(123,45,142,0.2)]"}`}
+              className={`h-full rounded-full transition-all ${memPct !== null ? getBarColor(memPct) : "bg-bar-track"}`}
               style={{ width: `${memPct ?? 0}%` }}
             />
           </div>

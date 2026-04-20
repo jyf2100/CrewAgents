@@ -17,6 +17,9 @@
   --color-accent-cyan: #05d9e8;
   --color-accent-glow: #7b2d8e;
 
+  /* ── Progress bar track ── */
+  --color-bar-track: rgba(123, 45, 142, 0.2);
+
   /* ── Semantic ── */
   --color-success: #00ff41;
   --color-warning: #f5a623;

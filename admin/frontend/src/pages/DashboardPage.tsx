@@ -4,8 +4,9 @@ import type { AgentListItem, ClusterStatus } from "../lib/admin-api";
 import { adminApi } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import { ClusterStatusBar } from "../components/ClusterStatusBar";
-import { AgentCard, statusOrder } from "../components/AgentCard";
+import { AgentCard } from "../components/AgentCard";
 import { LoadingSpinner } from "../components/LoadingSpinner";
+import { statusOrder } from "../lib/utils";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 
 export function DashboardPage() {

@@ -12,6 +12,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
   formatBytes,
   formatMillicores,
+  getApiError,
   getBarColor,
   statusDotColor,
   statusLabel,
@@ -113,10 +114,7 @@ export function AgentDetailPage() {
       showToast(`${label} - OK`);
       await loadAgent();
     } catch (err) {
-      showToast(
-        `${label} - ${err instanceof AdminApiError ? err.detail : t.errorGeneric}`,
-        "error"
-      );
+      showToast(`${label} - ${getApiError(err, t.errorGeneric)}`, "error");
     } finally {
       setActionLoading(null);
       setConfirmDialog(null);
@@ -345,9 +343,9 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
                 : "-"}
             </span>
           </div>
-          <div className="h-2 rounded-full bg-[rgba(123,45,142,0.2)] overflow-hidden">
+          <div className="h-2 rounded-full bg-bar-track overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${cpuPct !== null ? getBarColor(cpuPct) : "bg-[rgba(123,45,142,0.2)]"}`}
+              className={`h-full rounded-full transition-all ${cpuPct !== null ? getBarColor(cpuPct) : "bg-bar-track"}`}
               style={{ width: `${cpuPct ?? 0}%` }}
             />
           </div>
@@ -362,9 +360,9 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
               {memLimit !== null ? formatBytes(memLimit) : "-"}
             </span>
           </div>
-          <div className="h-2 rounded-full bg-[rgba(123,45,142,0.2)] overflow-hidden">
+          <div className="h-2 rounded-full bg-bar-track overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${memPct !== null ? getBarColor(memPct) : "bg-[rgba(123,45,142,0.2)]"}`}
+              className={`h-full rounded-full transition-all ${memPct !== null ? getBarColor(memPct) : "bg-bar-track"}`}
               style={{ width: `${memPct ?? 0}%` }}
             />
           </div>
@@ -482,8 +480,24 @@ function ConfigTab({ agentId }: { agentId: number }) {
       </div>
 
       {subTab === "env" && <EnvFormEditor agentId={agentId} />}
-      {subTab === "yaml" && <YamlEditor agentId={agentId} />}
-      {subTab === "soul" && <SoulEditor agentId={agentId} />}
+      {subTab === "yaml" && (
+        <TextConfigEditor
+          agentId={agentId}
+          loadFn={adminApi.getAgentConfig}
+          saveFn={(_, content) => adminApi.updateAgentConfig(agentId, content)}
+          successMsg={t.applySuccess}
+          t={t}
+        />
+      )}
+      {subTab === "soul" && (
+        <TextConfigEditor
+          agentId={agentId}
+          loadFn={adminApi.getAgentSoul}
+          saveFn={(_, content) => adminApi.updateAgentSoul(agentId, content)}
+          successMsg={t.soulSaved}
+          t={t}
+        />
+      )}
     </div>
   );
 }
@@ -530,10 +544,7 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
       await adminApi.updateAgentEnv(agentId, vars);
       showToast(t.applySuccess);
     } catch (err) {
-      showToast(
-        err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
-        "error"
-      );
+      showToast(getApiError(err, t.errorSaveFailed), "error");
     } finally {
       setApplying(false);
     }
@@ -606,88 +617,39 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
   );
 }
 
-// -- YAML Editor --
+// -- Shared text config editor --
 
-function YamlEditor({ agentId }: { agentId: number }) {
-  const { t } = useI18n();
+function TextConfigEditor({
+  agentId,
+  loadFn,
+  saveFn,
+  successMsg,
+  t,
+}: {
+  agentId: number;
+  loadFn: (id: number) => Promise<{ content: string }>;
+  saveFn: (id: number, content: string) => Promise<unknown>;
+  successMsg: string;
+  t: Record<string, string>;
+}) {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
 
   useEffect(() => {
-    adminApi
-      .getAgentConfig(agentId)
+    loadFn(agentId)
       .then((res) => setContent(res.content))
       .catch(() => showToast(t.errorLoadFailed, "error"))
       .finally(() => setLoading(false));
-  }, [agentId, t]);
+  }, [agentId, loadFn, t]);
 
   async function apply() {
     setApplying(true);
     try {
-      await adminApi.updateAgentConfig(agentId, content);
-      showToast(t.applySuccess);
+      await saveFn(agentId, content);
+      showToast(successMsg);
     } catch (err) {
-      showToast(
-        err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
-        "error"
-      );
-    } finally {
-      setApplying(false);
-    }
-  }
-
-  if (loading) {
-    return <p className="text-sm text-text-secondary">{t.loading}</p>;
-  }
-
-  return (
-    <div>
-      <textarea
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        className="w-full h-[500px] p-3 text-sm border border-border rounded-lg font-[family-name:var(--font-mono)] bg-background text-text-primary resize-y focus:outline-none focus:border-accent-cyan focus:shadow-[0_0_0_2px_rgba(5,217,232,0.15)]"
-        spellCheck={false}
-      />
-      <div className="mt-3">
-        <button
-          onClick={apply}
-          disabled={applying}
-          className="h-9 px-4 text-sm rounded bg-accent-pink text-white hover:bg-accent-pink/90 disabled:opacity-50"
-        >
-          {applying ? "..." : t.save}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// -- SOUL.md Editor --
-
-function SoulEditor({ agentId }: { agentId: number }) {
-  const { t } = useI18n();
-  const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [applying, setApplying] = useState(false);
-
-  useEffect(() => {
-    adminApi
-      .getAgentSoul(agentId)
-      .then((res) => setContent(res.content))
-      .catch(() => showToast(t.errorLoadFailed, "error"))
-      .finally(() => setLoading(false));
-  }, [agentId, t]);
-
-  async function apply() {
-    setApplying(true);
-    try {
-      await adminApi.updateAgentSoul(agentId, content);
-      showToast(t.soulSaved);
-    } catch (err) {
-      showToast(
-        err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
-        "error"
-      );
+      showToast(getApiError(err, t.errorSaveFailed), "error");
     } finally {
       setApplying(false);
     }

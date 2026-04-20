@@ -3,6 +3,12 @@
  * Extracted from AgentCard, AgentDetailPage, and ClusterStatusBar.
  */
 
+import { AdminApiError } from "./admin-api";
+
+export function getApiError(err: unknown, fallback: string): string {
+  return err instanceof AdminApiError ? err.detail : fallback;
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null) return "-";
   if (bytes < 1024) return `${bytes}B`;

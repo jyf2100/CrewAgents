@@ -3,9 +3,11 @@ import type {
   AdminSettings,
   ClusterStatus,
 } from "../lib/admin-api";
-import { adminApi, AdminApiError } from "../lib/admin-api";
+import { adminApi } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { LoadingSpinner } from "../components/LoadingSpinner";
+import { getApiError } from "../lib/utils";
 import { showToast } from "../lib/toast";
 
 // ---------------------------------------------------------------------------
@@ -134,10 +136,7 @@ export function SettingsPage() {
         window.location.href = "/admin/login";
       }, 1500);
     } catch (err) {
-      showToast(
-        err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
-        "error"
-      );
+      showToast(getApiError(err, t.errorSaveFailed), "error");
     } finally {
       setChangingKey(false);
     }
@@ -169,10 +168,7 @@ export function SettingsPage() {
       });
       showToast(t.settingsSaved);
     } catch (err) {
-      showToast(
-        err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
-        "error"
-      );
+      showToast(getApiError(err, t.errorSaveFailed), "error");
     } finally {
       setSavingResources(false);
     }
@@ -187,10 +183,7 @@ export function SettingsPage() {
       );
       showToast(t.settingsSaved);
     } catch (err) {
-      showToast(
-        err instanceof AdminApiError ? err.detail : t.errorSaveFailed,
-        "error"
-      );
+      showToast(getApiError(err, t.errorSaveFailed), "error");
     } finally {
       setTemplateSaving(false);
     }
@@ -200,7 +193,7 @@ export function SettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent-cyan border-t-transparent" />
+        <LoadingSpinner />
       </div>
     );
   }
@@ -434,7 +427,7 @@ export function SettingsPage() {
           {/* Template content */}
           {templateLoading ? (
             <div className="flex items-center gap-2 py-4">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent-cyan border-t-transparent" />
+              <LoadingSpinner size="sm" />
               <span className="text-sm text-text-secondary">
                 {t.loading}
               </span>
