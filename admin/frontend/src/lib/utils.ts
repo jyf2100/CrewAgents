@@ -19,26 +19,26 @@ export function formatMillicores(cores: number | null | undefined): string {
 }
 
 export function getBarColor(percent: number): string {
-  if (percent >= 90) return "bg-red-500";
-  if (percent >= 70) return "bg-yellow-500";
-  return "bg-green-500";
+  if (percent >= 90) return "bg-accent-pink";
+  if (percent >= 70) return "bg-warning";
+  return "bg-accent-cyan";
 }
 
 export function statusDotColor(status: string): string {
   switch (status) {
     case "running":
-      return "bg-green-500";
+      return "bg-success";
     case "stopped":
-      return "bg-gray-400";
+      return "bg-text-secondary";
     case "failed":
-      return "bg-red-500";
+      return "bg-accent-pink";
     case "pending":
     case "updating":
     case "scaling":
     case "starting":
-      return "bg-yellow-500";
+      return "bg-warning";
     default:
-      return "bg-gray-400";
+      return "bg-text-secondary";
   }
 }
 

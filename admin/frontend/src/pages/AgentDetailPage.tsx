@@ -36,10 +36,11 @@ function parseAgentId(raw: string): number {
 function logLineColor(line: string): string {
   const upper = line.toUpperCase();
   if (upper.includes("ERROR") || upper.includes("FATAL") || upper.includes("CRITICAL"))
-    return "text-red-400";
-  if (upper.includes("WARN") || upper.includes("WARNING")) return "text-yellow-400";
-  if (upper.includes("DEBUG") || upper.includes("TRACE")) return "text-zinc-500";
-  return "text-zinc-200";
+    return "text-accent-pink border-l-2 border-l-accent-pink pl-2";
+  if (upper.includes("WARN") || upper.includes("WARNING"))
+    return "text-warning border-l-2 border-l-warning pl-2";
+  if (upper.includes("DEBUG") || upper.includes("TRACE")) return "text-text-secondary";
+  return "text-text-primary";
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ export function AgentDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <p className="text-sm text-muted-foreground">{t.loading}</p>
+        <p className="text-sm text-text-secondary">{t.loading}</p>
       </div>
     );
   }
@@ -134,10 +135,10 @@ export function AgentDetailPage() {
   if (error && !agent) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3">
-        <p className="text-sm text-destructive">{error}</p>
+        <p className="text-sm text-accent-pink">{error}</p>
         <button
           onClick={loadAgent}
-          className="h-9 px-4 text-sm border border-border hover:bg-accent rounded"
+          className="h-9 px-4 text-sm border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 rounded"
         >
           {t.retry}
         </button>
@@ -149,22 +150,24 @@ export function AgentDetailPage() {
 
   // ----- Render -----
   return (
-    <div>
+    <div className="animate-page-enter">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
-            className="h-9 px-3 text-sm border border-border hover:bg-accent rounded"
+            className="h-9 px-3 text-sm border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 rounded"
           >
             &larr; {t.back}
           </button>
           <div className="flex items-center gap-2">
             <span
-              className={`inline-block h-2.5 w-2.5 rounded-full ${statusDotColor(agent.status)}`}
+              className={`inline-block h-2.5 w-2.5 rounded-full ${statusDotColor(agent.status)} ${agent.status === "running" ? "animate-status-pulse" : ""}`}
             />
-            <h1 className="text-xl font-bold">{agent.name}</h1>
-            <span className="text-xs text-muted-foreground">
+            <h1 className="text-xl font-[family-name:var(--font-body)] font-semibold text-text-primary">
+              {agent.name}
+            </h1>
+            <span className="text-text-secondary text-xs">
               {statusLabel(agent.status, t)}
             </span>
           </div>
@@ -175,7 +178,7 @@ export function AgentDetailPage() {
               doAction(() => adminApi.restartAgent(agentId), t.restart)
             }
             disabled={actionLoading !== null}
-            className="h-9 px-4 text-sm border border-border hover:bg-accent rounded disabled:opacity-50"
+            className="h-9 px-4 text-sm border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 rounded disabled:opacity-50"
           >
             {actionLoading === t.restart ? "..." : t.restart}
           </button>
@@ -189,7 +192,7 @@ export function AgentDetailPage() {
                 })
               }
               disabled={actionLoading !== null}
-              className="h-9 px-4 text-sm border border-border hover:bg-accent rounded disabled:opacity-50"
+              className="h-9 px-4 text-sm border border-warning text-warning hover:bg-warning/10 rounded disabled:opacity-50"
             >
               {actionLoading === t.stop ? "..." : t.stop}
             </button>
@@ -199,7 +202,7 @@ export function AgentDetailPage() {
                 doAction(() => adminApi.startAgent(agentId), t.start)
               }
               disabled={actionLoading !== null}
-              className="h-9 px-4 text-sm border border-border hover:bg-accent rounded disabled:opacity-50"
+              className="h-9 px-4 text-sm border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 rounded disabled:opacity-50"
             >
               {actionLoading === t.start ? "..." : t.start}
             </button>
@@ -213,7 +216,7 @@ export function AgentDetailPage() {
               })
             }
             disabled={actionLoading !== null}
-            className="h-9 px-4 text-sm rounded bg-destructive text-white hover:bg-destructive/90 disabled:opacity-50"
+            className="h-9 px-4 text-sm rounded bg-accent-pink text-white hover:bg-accent-pink/90 disabled:opacity-50"
           >
             {actionLoading === t.delete ? "..." : t.delete}
           </button>
@@ -226,10 +229,10 @@ export function AgentDetailPage() {
           <button
             key={tab}
             onClick={() => setTab(tab)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-4 py-2 text-sm font-medium border-b-[3px] transition-colors ${
               activeTab === tab
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "border-b-accent-pink text-accent-pink"
+                : "border-b-transparent text-text-secondary hover:text-text-primary"
             }`}
           >
             {t[tab as keyof typeof t] ?? tab}
@@ -326,13 +329,13 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
       </div>
 
       {/* Resource usage */}
-      <div className="rounded-lg border border-border bg-card p-4">
-        <h3 className="text-sm font-medium mb-3">{t.resourceUsage}</h3>
+      <div className="rounded-lg border border-border bg-surface p-4">
+        <h3 className="text-sm font-medium mb-3 text-text-primary">{t.resourceUsage}</h3>
         {/* CPU */}
         <div className="mb-3">
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+          <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
             <span>{t.cpuUsage}</span>
-            <span>
+            <span className="font-[family-name:var(--font-mono)]">
               {agent.resources.cpu_cores !== null
                 ? formatMillicores(agent.resources.cpu_cores)
                 : "-"}
@@ -342,26 +345,26 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
                 : "-"}
             </span>
           </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div className="h-2 rounded-full bg-[rgba(123,45,142,0.2)] overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${cpuPct !== null ? getBarColor(cpuPct) : "bg-muted"}`}
+              className={`h-full rounded-full transition-all ${cpuPct !== null ? getBarColor(cpuPct) : "bg-[rgba(123,45,142,0.2)]"}`}
               style={{ width: `${cpuPct ?? 0}%` }}
             />
           </div>
         </div>
         {/* Memory */}
         <div>
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+          <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
             <span>{t.memoryUsage}</span>
-            <span>
+            <span className="font-[family-name:var(--font-mono)]">
               {memUsage !== null ? formatBytes(memUsage) : "-"}
               {" / "}
               {memLimit !== null ? formatBytes(memLimit) : "-"}
             </span>
           </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div className="h-2 rounded-full bg-[rgba(123,45,142,0.2)] overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${memPct !== null ? getBarColor(memPct) : "bg-muted"}`}
+              className={`h-full rounded-full transition-all ${memPct !== null ? getBarColor(memPct) : "bg-[rgba(123,45,142,0.2)]"}`}
               style={{ width: `${memPct ?? 0}%` }}
             />
           </div>
@@ -370,30 +373,30 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
 
       {/* Pod info */}
       {agent.pods.length > 0 && (
-        <div className="rounded-lg border border-border bg-card p-4">
-          <h3 className="text-sm font-medium mb-3">{t.podInfo}</h3>
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <h3 className="text-sm font-medium mb-3 text-text-primary">{t.podInfo}</h3>
           {agent.pods.map((pod) => (
             <div key={pod.name} className="text-sm space-y-1 mb-3 last:mb-0">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div>
-                  <span className="text-xs text-muted-foreground">{t.podName}:</span>{" "}
-                  <span className="font-mono text-xs">{pod.name}</span>
+                  <span className="text-xs text-text-secondary">{t.podName}:</span>{" "}
+                  <span className="font-[family-name:var(--font-mono)] text-xs">{pod.name}</span>
                 </div>
                 <div>
-                  <span className="text-xs text-muted-foreground">{t.podPhase}:</span>{" "}
+                  <span className="text-xs text-text-secondary">{t.podPhase}:</span>{" "}
                   {pod.phase}
                 </div>
                 <div>
-                  <span className="text-xs text-muted-foreground">{t.podIp}:</span>{" "}
+                  <span className="text-xs text-text-secondary">{t.podIp}:</span>{" "}
                   {pod.pod_ip ?? "-"}
                 </div>
                 <div>
-                  <span className="text-xs text-muted-foreground">{t.podNode}:</span>{" "}
+                  <span className="text-xs text-text-secondary">{t.podNode}:</span>{" "}
                   {pod.node_name ?? "-"}
                 </div>
               </div>
               {pod.containers.map((c) => (
-                <div key={c.image} className="ml-4 text-xs text-muted-foreground">
+                <div key={c.image} className="ml-4 text-xs text-text-secondary">
                   {c.image} - {c.ready ? t.containerReady : t.containerNotReady}
                   {c.restart_count > 0 && ` (${t.restartCount}: ${c.restart_count})`}
                 </div>
@@ -404,28 +407,28 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
       )}
 
       {/* ConnectedPlatforms placeholder */}
-      <div className="rounded-lg border border-border bg-card p-4">
-        <h3 className="text-sm font-medium mb-1">{t.connectedPlatforms}</h3>
-        <p className="text-xs text-muted-foreground">{t.dataFromHealth}</p>
+      <div className="rounded-lg border border-border bg-surface p-4">
+        <h3 className="text-sm font-medium mb-1 text-text-primary">{t.connectedPlatforms}</h3>
+        <p className="text-xs text-text-secondary">{t.dataFromHealth}</p>
       </div>
 
       {/* Metadata */}
-      <div className="rounded-lg border border-border bg-card p-4">
-        <h3 className="text-sm font-medium mb-2">{t.quickStats}</h3>
+      <div className="rounded-lg border border-border bg-surface p-4">
+        <h3 className="text-sm font-medium mb-2 text-text-primary">{t.quickStats}</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
           <div>
-            <span className="text-xs text-muted-foreground">{t.agentId}:</span> {agent.id}
+            <span className="text-xs text-text-secondary">{t.agentId}:</span> {agent.id}
           </div>
           <div>
-            <span className="text-xs text-muted-foreground">{t.agentNamespace}:</span>{" "}
+            <span className="text-xs text-text-secondary">{t.agentNamespace}:</span>{" "}
             {agent.namespace}
           </div>
           <div>
-            <span className="text-xs text-muted-foreground">{t.createdAt}:</span>{" "}
+            <span className="text-xs text-text-secondary">{t.createdAt}:</span>{" "}
             {agent.created_at ?? "-"}
           </div>
           <div>
-            <span className="text-xs text-muted-foreground">{t.restartCount}:</span>{" "}
+            <span className="text-xs text-text-secondary">{t.restartCount}:</span>{" "}
             {agent.restart_count}
           </div>
         </div>
@@ -436,9 +439,9 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
 
 function StatusCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-sm font-medium mt-1">{value}</div>
+    <div className="rounded-lg border border-border border-t border-t-accent-cyan/30 bg-surface p-3">
+      <div className="text-xs text-text-secondary">{label}</div>
+      <div className="text-sm font-medium mt-1 text-text-primary font-[family-name:var(--font-mono)]">{value}</div>
     </div>
   );
 }
@@ -454,7 +457,7 @@ function ConfigTab({ agentId }: { agentId: number }) {
   return (
     <div>
       {/* Sub-tabs */}
-      <div className="flex gap-1 mb-4">
+      <div className="flex gap-1 mb-4 border-b border-border">
         {(["env", "yaml", "soul"] as const).map((st) => {
           const label =
             st === "env"
@@ -466,10 +469,10 @@ function ConfigTab({ agentId }: { agentId: number }) {
             <button
               key={st}
               onClick={() => setSubTab(st)}
-              className={`px-3 py-1.5 text-sm rounded ${
+              className={`px-3 py-1.5 text-sm border-b-[3px] transition-colors ${
                 subTab === st
-                  ? "bg-primary text-white"
-                  : "border border-border hover:bg-accent"
+                  ? "border-b-accent-pink text-accent-pink"
+                  : "border-b-transparent text-text-secondary hover:text-text-primary"
               }`}
             >
               {label}
@@ -537,7 +540,7 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">{t.loading}</p>;
+    return <p className="text-sm text-text-secondary">{t.loading}</p>;
   }
 
   return (
@@ -550,7 +553,7 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
               value={v.key}
               readOnly={v.key !== ""}
               onChange={(e) => updateVar(i, "key", e.target.value)}
-              className={`h-9 px-3 text-sm border border-border rounded flex-1 font-mono ${v.key !== "" ? "bg-muted" : ""}`}
+              className={`h-9 px-3 text-sm border border-border rounded-lg flex-1 font-[family-name:var(--font-mono)] bg-background text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent-cyan focus:shadow-[0_0_0_2px_rgba(5,217,232,0.15)] ${v.key !== "" ? "opacity-60 cursor-not-allowed bg-surface" : ""}`}
               placeholder={t.envKey}
             />
             <input
@@ -559,7 +562,7 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
               }
               value={v.value}
               onChange={(e) => updateVar(i, "value", e.target.value)}
-              className="h-9 px-3 text-sm border border-border rounded flex-[2] font-mono"
+              className="h-9 px-3 text-sm border border-border rounded-lg flex-[2] font-[family-name:var(--font-mono)] bg-background text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent-cyan focus:shadow-[0_0_0_2px_rgba(5,217,232,0.15)]"
               placeholder={t.envValue}
             />
             {v.is_secret && (
@@ -570,14 +573,14 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
                     [v.key]: !prev[v.key],
                   }))
                 }
-                className="h-9 px-2 text-xs border border-border hover:bg-accent rounded"
+                className="h-9 px-2 text-xs border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 rounded"
               >
                 {showValues[v.key] ? t.hide : t.show}
               </button>
             )}
             <button
               onClick={() => removeVar(i)}
-              className="h-9 px-2 text-xs border border-border hover:bg-accent rounded text-destructive"
+              className="h-9 px-2 text-xs border border-accent-pink text-accent-pink hover:bg-accent-pink/10 rounded"
             >
               {t.removeEnvVar}
             </button>
@@ -587,14 +590,14 @@ function EnvFormEditor({ agentId }: { agentId: number }) {
       <div className="flex gap-2">
         <button
           onClick={addVar}
-          className="h-9 px-4 text-sm border border-border hover:bg-accent rounded"
+          className="h-9 px-4 text-sm border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 rounded"
         >
           + {t.addEnvVar}
         </button>
         <button
           onClick={apply}
           disabled={applying}
-          className="h-9 px-4 text-sm rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+          className="h-9 px-4 text-sm rounded bg-accent-pink text-white hover:bg-accent-pink/90 disabled:opacity-50"
         >
           {applying ? "..." : t.save}
         </button>
@@ -635,7 +638,7 @@ function YamlEditor({ agentId }: { agentId: number }) {
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">{t.loading}</p>;
+    return <p className="text-sm text-text-secondary">{t.loading}</p>;
   }
 
   return (
@@ -643,14 +646,14 @@ function YamlEditor({ agentId }: { agentId: number }) {
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        className="w-full h-[500px] p-3 text-sm border border-border rounded font-mono bg-muted resize-y"
+        className="w-full h-[500px] p-3 text-sm border border-border rounded-lg font-[family-name:var(--font-mono)] bg-background text-text-primary resize-y focus:outline-none focus:border-accent-cyan focus:shadow-[0_0_0_2px_rgba(5,217,232,0.15)]"
         spellCheck={false}
       />
       <div className="mt-3">
         <button
           onClick={apply}
           disabled={applying}
-          className="h-9 px-4 text-sm rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+          className="h-9 px-4 text-sm rounded bg-accent-pink text-white hover:bg-accent-pink/90 disabled:opacity-50"
         >
           {applying ? "..." : t.save}
         </button>
@@ -691,7 +694,7 @@ function SoulEditor({ agentId }: { agentId: number }) {
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">{t.loading}</p>;
+    return <p className="text-sm text-text-secondary">{t.loading}</p>;
   }
 
   return (
@@ -699,14 +702,14 @@ function SoulEditor({ agentId }: { agentId: number }) {
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        className="w-full h-[500px] p-3 text-sm border border-border rounded font-mono bg-muted resize-y"
+        className="w-full h-[500px] p-3 text-sm border border-border rounded-lg font-[family-name:var(--font-mono)] bg-background text-text-primary resize-y focus:outline-none focus:border-accent-cyan focus:shadow-[0_0_0_2px_rgba(5,217,232,0.15)]"
         spellCheck={false}
       />
       <div className="mt-3">
         <button
           onClick={apply}
           disabled={applying}
-          className="h-9 px-4 text-sm rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+          className="h-9 px-4 text-sm rounded bg-accent-pink text-white hover:bg-accent-pink/90 disabled:opacity-50"
         >
           {applying ? "..." : t.save}
         </button>
@@ -850,13 +853,13 @@ function LogsTab({ agentId }: { agentId: number }) {
         <span
           className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded ${
             connected
-              ? "bg-green-500/10 text-green-600"
-              : "bg-red-500/10 text-red-600"
+              ? "bg-success/10 text-success"
+              : "bg-accent-pink/10 text-accent-pink"
           }`}
         >
           <span
             className={`inline-block h-1.5 w-1.5 rounded-full ${
-              connected ? "bg-green-500" : "bg-red-500"
+              connected ? "bg-success" : "bg-accent-pink"
             }`}
           />
           {connected ? t.logsConnected : t.logsDisconnected}
@@ -865,7 +868,7 @@ function LogsTab({ agentId }: { agentId: number }) {
         {/* Pause/Resume */}
         <button
           onClick={() => setPaused(!paused)}
-          className="h-8 px-3 text-xs border border-border hover:bg-accent rounded"
+          className="h-8 px-3 text-xs border border-border text-text-secondary hover:bg-surface hover:text-text-primary rounded"
         >
           {paused ? t.resume : t.pause}
         </button>
@@ -876,13 +879,13 @@ function LogsTab({ agentId }: { agentId: number }) {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder={t.filterLogs}
-          className="h-8 px-3 text-xs border border-border rounded flex-1 max-w-xs"
+          className="h-8 px-3 text-xs border border-border rounded flex-1 max-w-xs bg-background text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent-cyan"
         />
 
         {/* Clear */}
         <button
           onClick={clearLogs}
-          className="h-8 px-3 text-xs border border-border hover:bg-accent rounded"
+          className="h-8 px-3 text-xs border border-border text-text-secondary hover:bg-surface hover:text-text-primary rounded"
         >
           {t.logsClear}
         </button>
@@ -891,7 +894,7 @@ function LogsTab({ agentId }: { agentId: number }) {
         {!connected && (
           <button
             onClick={reconnect}
-            className="h-8 px-3 text-xs border border-border hover:bg-accent rounded"
+            className="h-8 px-3 text-xs border border-border text-text-secondary hover:bg-surface hover:text-text-primary rounded"
           >
             {t.logsReconnect}
           </button>
@@ -901,10 +904,10 @@ function LogsTab({ agentId }: { agentId: number }) {
       {/* Log viewer */}
       <div
         ref={containerRef}
-        className="bg-zinc-900 rounded-lg p-3 h-[500px] overflow-y-auto font-mono text-xs leading-5"
+        className="bg-terminal rounded-lg p-3 h-[500px] overflow-y-auto font-[family-name:var(--font-mono)] text-xs leading-5"
       >
         {filteredLines.length === 0 && (
-          <p className="text-zinc-500">
+          <p className="text-text-secondary">
             {connected ? t.logsConnecting : t.logsDisconnected}
           </p>
         )}
@@ -953,18 +956,18 @@ function EventsTab({ agentId }: { agentId: number }) {
   }, [loadEvents]);
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">{t.loading}</p>;
+    return <p className="text-sm text-text-secondary">{t.loading}</p>;
   }
 
   if (error) {
     return (
-      <p className="text-sm text-destructive">{error}</p>
+      <p className="text-sm text-accent-pink">{error}</p>
     );
   }
 
   if (events.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">{t.noEvents}</p>
+      <p className="text-sm text-text-secondary">{t.noEvents}</p>
     );
   }
 
@@ -972,7 +975,7 @@ function EventsTab({ agentId }: { agentId: number }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border text-left text-xs text-muted-foreground">
+          <tr className="border-b border-border bg-surface text-left text-xs text-text-secondary uppercase tracking-wider">
             <th className="py-2 px-3">{t.eventType}</th>
             <th className="py-2 px-3">{t.eventReason}</th>
             <th className="py-2 px-3">{t.eventMessage}</th>
@@ -980,31 +983,31 @@ function EventsTab({ agentId }: { agentId: number }) {
             <th className="py-2 px-3">{t.eventTime}</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="bg-background">
           {events.map((evt, i) => (
             <tr
               key={i}
-              className={`border-b border-border/50 ${
-                evt.type === "Warning" ? "bg-yellow-500/5" : ""
+              className={`border-b border-border-subtle hover:bg-surface/50 ${
+                evt.type === "Warning" ? "bg-warning/5" : ""
               }`}
             >
               <td className="py-2 px-3">
                 <span
                   className={`inline-block text-xs px-2 py-0.5 rounded ${
                     evt.type === "Warning"
-                      ? "bg-red-500/10 text-red-600"
-                      : "bg-gray-500/10 text-gray-600"
+                      ? "bg-accent-pink/10 text-accent-pink"
+                      : "bg-accent-cyan/10 text-accent-cyan"
                   }`}
                 >
                   {evt.type}
                 </span>
               </td>
-              <td className="py-2 px-3 font-mono text-xs">{evt.reason}</td>
+              <td className="py-2 px-3 font-[family-name:var(--font-mono)] text-xs">{evt.reason}</td>
               <td className="py-2 px-3 text-xs max-w-md truncate">
                 {evt.message}
               </td>
               <td className="py-2 px-3 text-xs">{evt.count}</td>
-              <td className="py-2 px-3 text-xs text-muted-foreground">
+              <td className="py-2 px-3 text-xs text-text-secondary">
                 {evt.age_human}
               </td>
             </tr>
@@ -1044,19 +1047,19 @@ function HealthTab({ agentId }: { agentId: number }) {
   }, [loadHealth]);
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">{t.loading}</p>;
+    return <p className="text-sm text-text-secondary">{t.loading}</p>;
   }
 
   if (error) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-destructive">{error}</p>
+        <p className="text-sm text-accent-pink">{error}</p>
         <button
           onClick={() => {
             setLoading(true);
             loadHealth();
           }}
-          className="h-9 px-4 text-sm border border-border hover:bg-accent rounded"
+          className="h-9 px-4 text-sm border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 rounded"
         >
           {t.refresh}
         </button>
@@ -1071,28 +1074,28 @@ function HealthTab({ agentId }: { agentId: number }) {
   return (
     <div className="space-y-4">
       {/* Overall status */}
-      <div className="rounded-lg border border-border bg-card p-4 flex items-center gap-4">
+      <div className="rounded-lg border border-border bg-surface p-4 flex items-center gap-4">
         <span
           className={`inline-flex items-center gap-2 text-sm font-medium px-3 py-1 rounded ${
             isHealthy
-              ? "bg-green-500/10 text-green-600"
-              : "bg-red-500/10 text-red-600"
+              ? "bg-success/10 text-success"
+              : "bg-accent-pink/10 text-accent-pink"
           }`}
         >
           <span
             className={`inline-block h-2.5 w-2.5 rounded-full ${
-              isHealthy ? "bg-green-500" : "bg-red-500"
+              isHealthy ? "bg-success" : "bg-accent-pink"
             }`}
           />
           {isHealthy ? t.healthOk : t.healthError}
         </span>
         {health.latency_ms !== null && (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-text-secondary text-xs">
             {t.healthLatency}: {health.latency_ms}ms
           </span>
         )}
         {health.checked_at && (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-text-secondary text-xs">
             {t.healthLastCheck}: {health.checked_at}
           </span>
         )}
@@ -1102,7 +1105,7 @@ function HealthTab({ agentId }: { agentId: number }) {
             setLoading(true);
             loadHealth();
           }}
-          className="h-9 px-4 text-sm border border-border hover:bg-accent rounded"
+          className="h-9 px-4 text-sm border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 rounded"
         >
           {t.refresh}
         </button>
@@ -1110,9 +1113,9 @@ function HealthTab({ agentId }: { agentId: number }) {
 
       {/* Gateway raw response */}
       {health.gateway_raw && (
-        <div className="rounded-lg border border-border bg-card p-4">
-          <h3 className="text-sm font-medium mb-2">{t.healthGatewayRaw}</h3>
-          <pre className="bg-muted p-3 rounded text-xs font-mono overflow-auto max-h-[400px]">
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <h3 className="text-sm font-medium mb-2 text-text-primary">{t.healthGatewayRaw}</h3>
+          <pre className="bg-background p-3 rounded font-[family-name:var(--font-mono)] text-xs text-text-primary overflow-auto max-h-[400px]">
             {JSON.stringify(health.gateway_raw, null, 2)}
           </pre>
         </div>
@@ -1120,9 +1123,9 @@ function HealthTab({ agentId }: { agentId: number }) {
 
       {/* Platform info */}
       {health.platform && (
-        <div className="rounded-lg border border-border bg-card p-4">
-          <span className="text-xs text-muted-foreground">{t.platform}:</span>{" "}
-          <span className="text-sm">{health.platform}</span>
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <span className="text-xs text-text-secondary">{t.platform}:</span>{" "}
+          <span className="text-sm text-text-primary">{health.platform}</span>
         </div>
       )}
     </div>

@@ -1,28 +1,41 @@
 /**
  * Shared toast notification utility for the Hermes Admin Panel frontend.
- * Replaces duplicated local toast() definitions across components.
+ * Cyberpunk dark theme with slide-in/out animations.
  */
 
 export function showToast(message: string, type: "success" | "error" = "success") {
-  const existing = document.getElementById("admin-toast-container");
-  if (!existing) {
-    const container = document.createElement("div");
+  let container = document.getElementById("admin-toast-container");
+  if (!container) {
+    container = document.createElement("div");
     container.id = "admin-toast-container";
     container.style.cssText =
-      "position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;";
+      "position:fixed;top:4rem;right:1rem;z-index:50;display:flex;flex-direction:column;gap:0.5rem;pointer-events:none;";
     document.body.appendChild(container);
   }
-  const container = document.getElementById("admin-toast-container")!;
+
   const el = document.createElement("div");
-  el.style.cssText = `padding:8px 16px;border-radius:4px;font-size:14px;max-width:400px;word-break:break-word;transition:opacity 0.3s;${
-    type === "error"
-      ? "background:#fef2f2;color:#dc2626;border:1px solid #fecaca;"
-      : "background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;"
-  }`;
+  el.style.cssText =
+    "padding:10px 16px;border-radius:8px;font-size:14px;max-width:400px;word-break:break-word;font-family:'Exo 2',sans-serif;pointer-events:auto;";
+
+  if (type === "error") {
+    el.style.background = "var(--color-surface)";
+    el.style.color = "var(--color-accent-pink)";
+    el.style.border = "1px solid var(--color-border)";
+    el.style.borderLeft = "3px solid var(--color-accent-pink)";
+  } else {
+    el.style.background = "var(--color-surface)";
+    el.style.color = "var(--color-success)";
+    el.style.border = "1px solid var(--color-border)";
+    el.style.borderLeft = "3px solid var(--color-success)";
+  }
+
+  el.className = "animate-toast-in";
   el.textContent = message;
   container.appendChild(el);
+
   setTimeout(() => {
-    el.style.opacity = "0";
-    setTimeout(() => el.remove(), 300);
+    el.classList.remove("animate-toast-in");
+    el.classList.add("animate-toast-out");
+    el.addEventListener("animationend", () => el.remove(), { once: true });
   }, 3000);
 }

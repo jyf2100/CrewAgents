@@ -52,6 +52,18 @@ export function SettingsPage() {
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
 
+  // Section collapse state
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    cluster: true,
+    adminKey: true,
+    resources: true,
+    templates: true,
+  });
+
+  function toggleSection(key: string) {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
   // Load settings
   const loadSettings = useCallback(async () => {
     try {
@@ -188,7 +200,7 @@ export function SettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent-cyan border-t-transparent" />
       </div>
     );
   }
@@ -196,13 +208,13 @@ export function SettingsPage() {
   if (error && !settings) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3">
-        <p className="text-sm text-destructive">{error}</p>
+        <p className="text-sm text-accent-pink">{error}</p>
         <button
           onClick={() => {
             setLoading(true);
             loadSettings();
           }}
-          className="h-9 px-4 text-sm border border-border hover:bg-accent rounded"
+          className="h-9 px-4 text-sm border border-accent-cyan text-accent-cyan rounded-lg hover:bg-accent-cyan/10 transition-colors"
         >
           {t.retry}
         </button>
@@ -211,59 +223,69 @@ export function SettingsPage() {
   }
 
   return (
-    <div>
+    <div className="animate-page-enter">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">{t.settingsTitle}</h1>
-        <p className="text-sm text-muted-foreground">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-text-primary">
+          {t.settingsTitle}
+        </h1>
+        <p className="text-sm text-text-secondary mt-1">
           {t.settingsSubtitle}
         </p>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* Section 1: Cluster Status */}
         {cluster && (
-          <SettingsSection title={t.clusterStatus}>
+          <SettingsSection
+            title={t.clusterStatus}
+            open={openSections.cluster}
+            onToggle={() => toggleSection("cluster")}
+          >
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                    <th className="py-2 px-3">{t.clusterNodeName}</th>
-                    <th className="py-2 px-3">{t.clusterCpuCapacity}</th>
-                    <th className="py-2 px-3">{t.clusterMemoryCapacity}</th>
-                    <th className="py-2 px-3">{t.clusterCpuUsage}</th>
-                    <th className="py-2 px-3">{t.clusterMemoryUsage}</th>
-                    <th className="py-2 px-3">{t.clusterDiskTotal}</th>
-                    <th className="py-2 px-3">{t.clusterDiskUsed}</th>
+                  <tr className="bg-surface text-text-secondary text-xs uppercase tracking-wider font-semibold">
+                    <th className="py-2.5 px-3 text-left">{t.clusterNodeName}</th>
+                    <th className="py-2.5 px-3 text-left">{t.clusterCpuCapacity}</th>
+                    <th className="py-2.5 px-3 text-left">{t.clusterMemoryCapacity}</th>
+                    <th className="py-2.5 px-3 text-left">{t.clusterCpuUsage}</th>
+                    <th className="py-2.5 px-3 text-left">{t.clusterMemoryUsage}</th>
+                    <th className="py-2.5 px-3 text-left">{t.clusterDiskTotal}</th>
+                    <th className="py-2.5 px-3 text-left">{t.clusterDiskUsed}</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="bg-background">
                   {cluster.nodes.map((node) => (
                     <tr
                       key={node.name}
-                      className="border-b border-border/50"
+                      className="border-b border-border-subtle hover:bg-surface/50 transition-colors"
                     >
-                      <td className="py-2 px-3 font-mono text-xs">
+                      <td className="py-2.5 px-3 font-[family-name:var(--font-mono)] text-xs text-accent-cyan">
                         {node.name}
                       </td>
-                      <td className="py-2 px-3">{node.cpu_capacity}</td>
-                      <td className="py-2 px-3">{node.memory_capacity}</td>
-                      <td className="py-2 px-3">
+                      <td className="py-2.5 px-3 font-[family-name:var(--font-mono)] text-text-primary">
+                        {node.cpu_capacity}
+                      </td>
+                      <td className="py-2.5 px-3 font-[family-name:var(--font-mono)] text-text-primary">
+                        {node.memory_capacity}
+                      </td>
+                      <td className="py-2.5 px-3 font-[family-name:var(--font-mono)] text-text-primary">
                         {node.cpu_usage_percent !== null
                           ? `${node.cpu_usage_percent.toFixed(1)}%`
                           : "-"}
                       </td>
-                      <td className="py-2 px-3">
+                      <td className="py-2.5 px-3 font-[family-name:var(--font-mono)] text-text-primary">
                         {node.memory_usage_percent !== null
                           ? `${node.memory_usage_percent.toFixed(1)}%`
                           : "-"}
                       </td>
-                      <td className="py-2 px-3">
+                      <td className="py-2.5 px-3 font-[family-name:var(--font-mono)] text-text-primary">
                         {node.disk_total_gb !== null
                           ? `${node.disk_total_gb.toFixed(1)} GB`
                           : "-"}
                       </td>
-                      <td className="py-2 px-3">
+                      <td className="py-2.5 px-3 font-[family-name:var(--font-mono)] text-text-primary">
                         {node.disk_used_gb !== null
                           ? `${node.disk_used_gb.toFixed(1)} GB`
                           : "-"}
@@ -273,33 +295,37 @@ export function SettingsPage() {
                 </tbody>
               </table>
             </div>
-            <div className="mt-3 text-xs text-muted-foreground">
-              {t.agentNamespace}: {cluster.namespace} | {t.runningAgents}:{" "}
-              {cluster.running_agents}/{cluster.total_agents}
+            <div className="mt-3 text-xs text-text-secondary font-[family-name:var(--font-mono)]">
+              {t.agentNamespace}: <span className="text-accent-cyan">{cluster.namespace}</span> | {t.runningAgents}:{" "}
+              <span className="text-accent-cyan">{cluster.running_agents}</span>/{cluster.total_agents}
             </div>
           </SettingsSection>
         )}
 
         {/* Section 2: Admin API Key */}
         {settings && (
-          <SettingsSection title={t.adminKey}>
+          <SettingsSection
+            title={t.adminKey}
+            open={openSections.adminKey}
+            onToggle={() => toggleSection("adminKey")}
+          >
             <div className="space-y-3 max-w-lg">
               {/* Current key (masked) */}
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">
+                <label className="text-xs text-text-secondary mb-1 block">
                   {t.adminKeyMasked}
                 </label>
                 <input
                   type="text"
                   value={settings.admin_key_masked}
                   readOnly
-                  className="h-9 w-full px-3 text-sm border border-border rounded bg-muted font-mono"
+                  className="h-9 w-full px-3 text-sm bg-background border border-border rounded-lg text-text-primary font-[family-name:var(--font-mono)] opacity-60 cursor-not-allowed"
                 />
               </div>
 
               {/* New key inputs */}
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">
+                <label className="text-xs text-text-secondary mb-1 block">
                   {t.adminKeyNew}
                 </label>
                 <input
@@ -307,11 +333,11 @@ export function SettingsPage() {
                   value={newKey}
                   onChange={(e) => setNewKey(e.target.value)}
                   placeholder={t.adminKeyNewPlaceholder}
-                  className="h-9 w-full px-3 text-sm border border-border rounded font-mono"
+                  className="h-9 w-full px-3 text-sm bg-background border border-border rounded-lg text-text-primary font-[family-name:var(--font-mono)] placeholder:text-text-secondary focus:outline-none focus:border-accent-cyan focus:shadow-[0_0_0_2px_rgba(5,217,232,0.15)]"
                 />
               </div>
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">
+                <label className="text-xs text-text-secondary mb-1 block">
                   {t.confirmNewKey}
                 </label>
                 <input
@@ -319,13 +345,13 @@ export function SettingsPage() {
                   value={confirmKey}
                   onChange={(e) => setConfirmKey(e.target.value)}
                   placeholder={t.confirmNewKeyPlaceholder}
-                  className="h-9 w-full px-3 text-sm border border-border rounded font-mono"
+                  className="h-9 w-full px-3 text-sm bg-background border border-border rounded-lg text-text-primary font-[family-name:var(--font-mono)] placeholder:text-text-secondary focus:outline-none focus:border-accent-cyan focus:shadow-[0_0_0_2px_rgba(5,217,232,0.15)]"
                 />
               </div>
               <button
                 onClick={() => setShowKeyDialog(true)}
                 disabled={!newKey || !confirmKey || newKey !== confirmKey}
-                className="h-9 px-4 text-sm rounded bg-destructive text-white hover:bg-destructive/90 disabled:opacity-50"
+                className="h-9 px-4 text-sm rounded-lg bg-accent-pink text-white hover:shadow-[0_0_15px_rgba(255,42,109,0.2)] transition-shadow disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t.changeAdminKey}
               </button>
@@ -334,36 +360,40 @@ export function SettingsPage() {
         )}
 
         {/* Section 3: Default Resource Limits */}
-        <SettingsSection title={t.defaultResources}>
+        <SettingsSection
+          title={t.defaultResources}
+          open={openSections.resources}
+          onToggle={() => toggleSection("resources")}
+        >
           <div className="space-y-3 max-w-lg">
             <div>
-              <label className="block text-xs text-muted-foreground mb-1">
+              <label className="text-xs text-text-secondary mb-1 block">
                 {t.cpuLimit}
               </label>
               <input
                 type="text"
                 value={cpuLimit}
                 onChange={(e) => setCpuLimit(e.target.value)}
-                className="h-9 w-full px-3 text-sm border border-border rounded font-mono"
+                className="h-9 w-full px-3 text-sm bg-background border border-border rounded-lg text-text-primary font-[family-name:var(--font-mono)] placeholder:text-text-secondary focus:outline-none focus:border-accent-cyan focus:shadow-[0_0_0_2px_rgba(5,217,232,0.15)]"
                 placeholder="1000m"
               />
             </div>
             <div>
-              <label className="block text-xs text-muted-foreground mb-1">
+              <label className="text-xs text-text-secondary mb-1 block">
                 {t.memoryLimit}
               </label>
               <input
                 type="text"
                 value={memoryLimit}
                 onChange={(e) => setMemoryLimit(e.target.value)}
-                className="h-9 w-full px-3 text-sm border border-border rounded font-mono"
+                className="h-9 w-full px-3 text-sm bg-background border border-border rounded-lg text-text-primary font-[family-name:var(--font-mono)] placeholder:text-text-secondary focus:outline-none focus:border-accent-cyan focus:shadow-[0_0_0_2px_rgba(5,217,232,0.15)]"
                 placeholder="1Gi"
               />
             </div>
             <button
               onClick={handleSaveResources}
               disabled={savingResources}
-              className="h-9 px-4 text-sm rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+              className="h-9 px-4 text-sm rounded-lg bg-accent-pink text-white hover:shadow-[0_0_15px_rgba(255,42,109,0.2)] transition-shadow disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {savingResources ? "..." : t.save}
             </button>
@@ -371,29 +401,41 @@ export function SettingsPage() {
         </SettingsSection>
 
         {/* Section 4: Template Editor */}
-        <SettingsSection title={t.templateManagement}>
-          {/* Sub-tabs */}
-          <div className="flex gap-1 mb-4">
-            {TEMPLATE_TABS.map((tab) => (
-              <button
-                key={tab.type}
-                onClick={() => setTemplateTab(tab.type)}
-                className={`px-3 py-1.5 text-sm rounded ${
-                  templateTab === tab.type
-                    ? "bg-primary text-white"
-                    : "border border-border hover:bg-accent"
-                }`}
-              >
-                {t[tab.labelKey]}
-              </button>
-            ))}
+        <SettingsSection
+          title={t.templateManagement}
+          open={openSections.templates}
+          onToggle={() => toggleSection("templates")}
+        >
+          {/* Sub-tabs — underline style */}
+          <div className="flex gap-1 border-b border-border-subtle mb-4 overflow-x-auto">
+            {TEMPLATE_TABS.map((tab) => {
+              const isActive = templateTab === tab.type;
+              return (
+                <button
+                  key={tab.type}
+                  onClick={() => setTemplateTab(tab.type)}
+                  className={`
+                    relative px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors
+                    ${isActive
+                      ? "text-accent-pink"
+                      : "text-text-secondary hover:text-text-primary"
+                    }
+                  `}
+                >
+                  {t[tab.labelKey]}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-0 right-0 h-[3px] bg-accent-pink rounded-t" />
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* Template content */}
           {templateLoading ? (
             <div className="flex items-center gap-2 py-4">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              <span className="text-sm text-muted-foreground">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent-cyan border-t-transparent" />
+              <span className="text-sm text-text-secondary">
                 {t.loading}
               </span>
             </div>
@@ -407,14 +449,14 @@ export function SettingsPage() {
                     [templateTab]: e.target.value,
                   }))
                 }
-                className="w-full h-[400px] p-3 text-sm border border-border rounded font-mono bg-muted resize-y"
+                className="w-full h-[400px] p-4 text-sm bg-background border border-border rounded-lg font-[family-name:var(--font-mono)] text-text-primary resize-y focus:outline-none focus:border-accent-cyan"
                 spellCheck={false}
               />
               <div className="mt-3">
                 <button
                   onClick={handleSaveTemplate}
                   disabled={templateSaving}
-                  className="h-9 px-4 text-sm rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+                  className="h-9 px-4 text-sm rounded-lg bg-accent-pink text-white hover:shadow-[0_0_15px_rgba(255,42,109,0.2)] transition-shadow disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {templateSaving ? "..." : t.save}
                 </button>
@@ -441,20 +483,55 @@ export function SettingsPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Settings section wrapper
+// Settings section wrapper — collapsible cyberpunk panels
 // ---------------------------------------------------------------------------
 
 function SettingsSection({
   title,
+  open = true,
+  onToggle,
   children,
 }: {
   title: string;
+  open?: boolean;
+  onToggle?: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <h2 className="text-sm font-semibold mb-3">{title}</h2>
-      {children}
+    <div className="bg-surface rounded-lg border border-border overflow-hidden">
+      {/* Header bar */}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full bg-surface px-4 py-3 flex items-center justify-between cursor-pointer border-l-[3px] border-l-accent-cyan hover:bg-surface-elevated/30 transition-colors"
+      >
+        <h2 className="text-sm font-semibold text-text-primary text-left">
+          {title}
+        </h2>
+        <svg
+          className={`w-4 h-4 text-text-secondary transition-transform duration-200 ${
+            open ? "rotate-180" : "rotate-0"
+          }`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Content — collapsible */}
+      <div
+        className={`transition-all duration-200 ease-in-out ${
+          open
+            ? "max-h-[2000px] opacity-100"
+            : "max-h-0 opacity-0 overflow-hidden"
+        }`}
+      >
+        <div className="px-4 pb-4 pt-2">{children}</div>
+      </div>
     </div>
   );
 }

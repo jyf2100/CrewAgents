@@ -17,7 +17,7 @@ RUN npm run build -- --base /admin/
 # ============================================================================
 # Stage 2: Runtime with Python
 # ============================================================================
-FROM python:3.11-slim AS runtime
+FROM python:3.12-slim AS runtime
 
 # Install curl for health checks
 RUN apt-get update && \

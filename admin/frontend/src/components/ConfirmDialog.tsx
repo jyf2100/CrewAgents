@@ -25,31 +25,37 @@ export function ConfirmDialog({
 
   const confirmClass =
     variant === "destructive"
-      ? "bg-destructive text-white hover:bg-destructive/90"
-      : "bg-primary text-white hover:bg-primary/90";
+      ? "bg-accent-pink text-white hover:bg-accent-pink/90"
+      : "border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
+      {/* Glass backdrop */}
       <div
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onCancel}
       />
       {/* Dialog */}
-      <div className="relative bg-background border border-border rounded-lg shadow-lg max-w-md w-full mx-4 p-6">
-        <h3 className="text-lg font-semibold mb-2">{title}</h3>
-        <p className="text-sm text-muted-foreground mb-6">{message}</p>
+      <div
+        className={`animate-modal-enter relative bg-surface-elevated border border-border rounded-lg shadow-lg max-w-md w-full mx-4 p-6 ${
+          variant === "destructive" ? "border-t-2 border-t-accent-pink" : ""
+        }`}
+      >
+        <h3 className="text-lg font-semibold text-text-primary mb-2">
+          {title}
+        </h3>
+        <p className="text-sm text-text-secondary mb-6">{message}</p>
         <div className="flex justify-end gap-3">
           <button
             onClick={onCancel}
-            className="h-9 px-4 text-sm border border-border hover:bg-accent rounded"
+            className="h-9 px-4 text-sm text-text-secondary hover:bg-surface rounded-lg transition-colors"
             disabled={loading}
           >
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
-            className={`h-9 px-4 text-sm rounded ${confirmClass}`}
+            className={`h-9 px-4 text-sm rounded-lg transition-colors ${confirmClass}`}
             disabled={loading}
           >
             {loading ? "..." : confirmLabel}

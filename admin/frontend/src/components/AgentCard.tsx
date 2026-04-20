@@ -65,6 +65,8 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
   const memPct =
     memFraction !== null ? Math.min(Math.round(memFraction * 100), 100) : null;
 
+  const isRunning = agent.status === "running";
+
   async function doAction(action: () => Promise<unknown>, label: string) {
     setActionLoading(true);
     try {
@@ -112,17 +114,25 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
 
   return (
     <>
-      <div className="rounded-lg border border-border bg-card p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
+      <div
+        className={`rounded-lg border border-border bg-surface p-4 flex flex-col gap-3 hover:border-border-cyan hover:shadow-[0_4px_20px_rgba(123,45,142,0.15)] transition-all duration-200 group hover:-translate-y-0.5 ${
+          isRunning ? "border-l-[3px] border-l-accent-cyan" : ""
+        }`}
+      >
         {/* Header: status dot + name */}
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <span
-              className={`inline-block h-2.5 w-2.5 rounded-full flex-shrink-0 ${statusDotColor(agent.status)}`}
+              className={`inline-block h-2.5 w-2.5 rounded-full flex-shrink-0 ${statusDotColor(agent.status)} ${
+                isRunning ? "animate-status-pulse glow-cyan" : ""
+              }`}
             />
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-text-secondary">
               {statusLabel(agent.status, t)}
             </span>
-            <span className="text-sm font-medium truncate">{agent.name}</span>
+            <span className="text-sm font-semibold font-[family-name:var(--font-body)] text-text-primary truncate">
+              {agent.name}
+            </span>
           </div>
           {/* Kebab menu */}
           <details
@@ -131,12 +141,24 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
             onToggle={(e) => setMenuOpen((e.target as HTMLDetailsElement).open)}
             className="relative"
           >
-            <summary className="cursor-pointer text-muted-foreground hover:text-foreground text-sm select-none list-none px-1">
-              ...
+            <summary className="cursor-pointer text-text-secondary hover:text-text-primary select-none list-none p-1">
+              <svg
+                className="h-4 w-4"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <circle cx="4" cy="3" r="1.2" />
+                <circle cx="4" cy="8" r="1.2" />
+                <circle cx="4" cy="13" r="1.2" />
+                <rect x="6" y="2.2" width="7" height="1.6" rx="0.8" />
+                <rect x="6" y="7.2" width="7" height="1.6" rx="0.8" />
+                <rect x="6" y="12.2" width="7" height="1.6" rx="0.8" />
+              </svg>
             </summary>
-            <div className="absolute right-0 top-6 z-20 w-36 rounded-md border border-border bg-background shadow-lg py-1 text-sm">
+            <div className="absolute right-0 top-8 z-20 w-36 rounded-md border border-border bg-surface-elevated shadow-lg py-1 text-sm">
               <button
-                className="w-full text-left px-3 py-1.5 hover:bg-accent disabled:opacity-50"
+                className="w-full text-left px-3 py-1.5 hover:bg-surface text-text-primary disabled:opacity-50"
                 disabled={actionLoading}
                 onClick={() =>
                   doAction(
@@ -149,7 +171,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
               </button>
               {agent.status === "running" ? (
                 <button
-                  className="w-full text-left px-3 py-1.5 hover:bg-accent disabled:opacity-50"
+                  className="w-full text-left px-3 py-1.5 hover:bg-surface text-text-primary disabled:opacity-50"
                   disabled={actionLoading}
                   onClick={() =>
                     doAction(() => adminApi.stopAgent(agent.id), t.stop)
@@ -159,7 +181,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
                 </button>
               ) : (
                 <button
-                  className="w-full text-left px-3 py-1.5 hover:bg-accent disabled:opacity-50"
+                  className="w-full text-left px-3 py-1.5 hover:bg-surface text-text-primary disabled:opacity-50"
                   disabled={actionLoading}
                   onClick={() =>
                     doAction(() => adminApi.startAgent(agent.id), t.start)
@@ -169,7 +191,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
                 </button>
               )}
               <button
-                className="w-full text-left px-3 py-1.5 hover:bg-accent"
+                className="w-full text-left px-3 py-1.5 hover:bg-surface text-text-primary"
                 onClick={() => {
                   setMenuOpen(false);
                   navigate(`/agents/${agent.id}`);
@@ -178,7 +200,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
                 {t.logs}
               </button>
               <button
-                className="w-full text-left px-3 py-1.5 hover:bg-accent disabled:opacity-50"
+                className="w-full text-left px-3 py-1.5 hover:bg-surface text-text-primary disabled:opacity-50"
                 disabled={actionLoading}
                 onClick={() => {
                   setMenuOpen(false);
@@ -189,7 +211,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
               </button>
               <hr className="my-1 border-border" />
               <button
-                className="w-full text-left px-3 py-1.5 hover:bg-accent text-destructive disabled:opacity-50"
+                className="w-full text-left px-3 py-1.5 hover:bg-surface text-accent-pink disabled:opacity-50"
                 disabled={actionLoading}
                 onClick={() => {
                   setMenuOpen(false);
@@ -204,9 +226,9 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
 
         {/* CPU bar */}
         <div>
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+          <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
             <span>{t.cpuUsage}</span>
-            <span>
+            <span className="font-[family-name:var(--font-mono)]">
               {agent.resources.cpu_cores !== null
                 ? formatMillicores(agent.resources.cpu_cores)
                 : "-"}
@@ -216,7 +238,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
                 : "-"}
             </span>
           </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="h-1.5 rounded-full bg-[rgba(123,45,142,0.2)] overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${getBarColor(cpuPct)}`}
               style={{ width: `${cpuPct}%` }}
@@ -226,17 +248,17 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
 
         {/* Memory bar */}
         <div>
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+          <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
             <span>{t.memoryUsage}</span>
-            <span>
+            <span className="font-[family-name:var(--font-mono)]">
               {memUsage !== null ? formatBytes(memUsage) : "-"}
               {" / "}
               {memLimit !== null ? formatBytes(memLimit) : "-"}
             </span>
           </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="h-1.5 rounded-full bg-[rgba(123,45,142,0.2)] overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${memPct !== null ? getBarColor(memPct) : "bg-muted"}`}
+              className={`h-full rounded-full transition-all ${memPct !== null ? getBarColor(memPct) : "bg-[rgba(123,45,142,0.2)]"}`}
               style={{ width: `${memPct ?? 0}%` }}
             />
           </div>
@@ -244,9 +266,9 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
 
         {/* Footer: restart count, age, detail button */}
         <div className="flex items-center justify-between mt-1">
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-3 text-xs text-text-secondary">
             {agent.restart_count > 0 && (
-              <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-medium">
+              <span className="inline-flex items-center rounded-full bg-accent-pink/20 text-accent-pink px-2 py-0.5 text-xs font-medium">
                 {t.restartCount}: {agent.restart_count}
               </span>
             )}
@@ -254,7 +276,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
           </div>
           <button
             onClick={() => navigate(`/agents/${agent.id}`)}
-            className="text-xs text-primary hover:underline"
+            className="text-xs text-accent-cyan hover:underline"
           >
             {t.view} &rarr;
           </button>
