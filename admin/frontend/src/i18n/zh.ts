@@ -219,6 +219,17 @@ export interface Translations {
   version: string;
   documentation: string;
 
+  // API Access
+  apiAccess: string;
+  apiServerUrl: string;
+  apiKeyMasked: string;
+  testApiConnection: string;
+  testApiSuccess: string;
+  testApiFailed: string;
+  testApiLatency: string;
+  copyUrl: string;
+  copyKey: string;
+
   // Admin-specific
   validationAdminKeyLength: string;
   keyMismatch: string;
@@ -256,6 +267,27 @@ export interface Translations {
 
   // Misc
   envVarCount: string;
+
+  // WeChat (Weixin)
+  weixinConnection: string;
+  weixinNotConnected: string;
+  weixinNotConnectedDesc: string;
+  weixinRegister: string;
+  weixinReregister: string;
+  weixinUnbind: string;
+  weixinUnbound: string;
+  weixinUnbindConfirm: string;
+  weixinAccount: string;
+  weixinBoundAt: string;
+  weixinGroups: string;
+  weixinQRTitle: string;
+  weixinScanned: string;
+  weixinWaiting: string;
+  weixinConnected: string;
+
+  // API Key Reveal
+  revealKey: string;
+  hideKey: string;
 }
 
 export const zh: Translations = {
@@ -499,6 +531,17 @@ export const zh: Translations = {
   version: "版本",
   documentation: "文档",
 
+  // API Access
+  apiAccess: "API 访问",
+  apiServerUrl: "API 地址",
+  apiKeyMasked: "API 密钥",
+  testApiConnection: "测试连接",
+  testApiSuccess: "连接成功",
+  testApiFailed: "连接失败",
+  testApiLatency: "延迟: {n}ms",
+  copyUrl: "复制地址",
+  copyKey: "复制密钥",
+
   // Admin-specific
   validationAdminKeyLength: "密钥至少需要8个字符",
   keyMismatch: "两次输入的密钥不一致",
@@ -536,4 +579,25 @@ export const zh: Translations = {
 
   // Misc
   envVarCount: "{n} 个变量",
+
+  // WeChat (Weixin)
+  weixinConnection: "微信连接",
+  weixinNotConnected: "未连接",
+  weixinNotConnectedDesc: "尚未连接微信",
+  weixinRegister: "注册微信",
+  weixinReregister: "重新注册",
+  weixinUnbind: "解绑",
+  weixinUnbound: "微信已解绑",
+  weixinUnbindConfirm: "确定要解绑微信吗？Agent 将会重启。",
+  weixinAccount: "账号",
+  weixinBoundAt: "绑定时间",
+  weixinGroups: "群组",
+  weixinQRTitle: "微信扫码登录",
+  weixinScanned: "已扫码",
+  weixinWaiting: "等待中...",
+  weixinConnected: "微信已连接！",
+
+  // API Key Reveal
+  revealKey: "查看密钥",
+  hideKey: "隐藏密钥",
 };

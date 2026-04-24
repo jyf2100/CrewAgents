@@ -163,7 +163,21 @@ class K8sClient:
         related.sort(key=lambda e: e.last_timestamp or e.event_time or "", reverse=True)
         return related
 
-    # Ingress (with lock for concurrent mutations)
+    # Ingress
+
+    async def get_ingress(self, name: str):
+        """Read an ingress resource by name."""
+        try:
+            return await self._k8s_call(
+                self.networking_api.read_namespaced_ingress,
+                name=name, namespace=self.namespace,
+            )
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return None
+            raise
+
+    # Ingress mutations (with lock for concurrent mutations)
 
     async def add_ingress_path(self, path: str, service_name: str, service_port: int) -> None:
         async with self._ingress_lock:

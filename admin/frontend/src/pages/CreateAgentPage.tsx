@@ -63,6 +63,10 @@ const PROVIDER_DEFAULTS: Record<
     model: "moonshot-v1-128k",
     baseUrl: "https://api.moonshot.cn/v1",
   },
+  "anthropic-compat": {
+    model: "",
+    baseUrl: "",
+  },
   custom: {
     model: "",
     baseUrl: "",
@@ -77,7 +81,8 @@ const PROVIDER_OPTIONS = [
   { value: "zhipuai", label: "ZhipuAI" },
   { value: "minimax", label: "MiniMax" },
   { value: "kimi", label: "Kimi" },
-  { value: "custom", label: "Custom" },
+  { value: "anthropic-compat", label: "Anthropic 兼容" },
+  { value: "custom", label: "OpenAI 兼容" },
 ];
 
 // ---------------------------------------------------------------------------

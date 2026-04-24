@@ -69,6 +69,39 @@ class ConfigManager:
             f.writelines(new_lines)
         os.replace(tmp_path, env_path)
 
+    def read_env_raw(self, agent_id: int) -> dict[str, str]:
+        """Read .env file without masking secrets. Returns {key: value} dict."""
+        env_path = os.path.join(self._agent_dir(agent_id), ".env")
+        if not os.path.isfile(env_path):
+            return {}
+        result: dict[str, str] = {}
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                result[key.strip()] = value.strip().strip("\"'")
+        return result
+
+    def remove_env_keys(self, agent_id: int, key_prefix: str) -> None:
+        """Remove all env vars whose key starts with key_prefix."""
+        env_path = os.path.join(self._agent_dir(agent_id), ".env")
+        if not os.path.isfile(env_path):
+            return
+        with open(env_path) as f:
+            lines = f.readlines()
+        new_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped and "=" in stripped and stripped.partition("=")[0].strip().startswith(key_prefix):
+                continue
+            new_lines.append(line)
+        tmp_path = env_path + ".tmp"
+        with open(tmp_path, "w") as f:
+            f.writelines(new_lines)
+        os.replace(tmp_path, env_path)
+
     def read_config(self, agent_id: int) -> ConfigYaml:
         path = os.path.join(self._agent_dir(agent_id), "config.yaml")
         if not os.path.isfile(path):

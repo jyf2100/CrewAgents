@@ -109,8 +109,11 @@ async function adminFetch<T>(
 export interface AgentListItem {
   id: number;
   name: string;
+  display_name?: string;
   status: string;
   url_path: string;
+  api_server_url: string;
+  api_key_masked: string;
   resources: {
     cpu_cores: number | null;
     cpu_request_millicores: number | null;
@@ -145,8 +148,11 @@ export interface PodInfo {
 export interface AgentDetail {
   id: number;
   name: string;
+  display_name?: string;
   status: string;
   url_path: string;
+  api_server_url: string;
+  api_key_masked: string;
   namespace: string;
   labels: Record<string, string>;
   created_at: string | null;
@@ -320,6 +326,33 @@ export interface LogsTokenResponse {
   expires_in: number;
 }
 
+export interface WeixinStatus {
+  agent_number: number;
+  connected: boolean;
+  account_id: string;
+  user_id: string;
+  base_url: string;
+  dm_policy: string;
+  group_policy: string;
+  bound_at: string | null;
+}
+
+export interface WeixinAction {
+  agent_number: number;
+  action: string;
+  success: boolean;
+  message: string;
+}
+
+export interface TestAgentApiResponse {
+  agent_number: number;
+  success: boolean;
+  status_code: number | null;
+  latency_ms: number | null;
+  error: string | null;
+  response_preview: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // API methods
 // ---------------------------------------------------------------------------
@@ -422,6 +455,12 @@ export const adminApi = {
     return adminFetch(`/agents/${agentId}/health`);
   },
 
+  testAgentApi(agentId: number): Promise<TestAgentApiResponse> {
+    return adminFetch(`/agents/${agentId}/test-api`, {
+      method: "POST",
+    });
+  },
+
   getAgentEvents(agentId: number): Promise<{ agent_number: number; events: K8sEvent[] }> {
     return adminFetch(`/agents/${agentId}/events`);
   },
@@ -485,6 +524,30 @@ export const adminApi = {
     return adminFetch("/test-llm-connection", {
       method: "POST",
       body: JSON.stringify(req),
+    });
+  },
+
+  // -- WeChat (Weixin) --
+  getWeixinStatus(agentId: number): Promise<WeixinStatus> {
+    return adminFetch(`/agents/${agentId}/weixin/status`);
+  },
+
+  startWeixinQR(agentId: number): string {
+    // EventSource cannot set custom headers, so pass admin key as query param
+    const key = getAdminKey();
+    return `${ADMIN_BASE}/agents/${agentId}/weixin/qr?key=${encodeURIComponent(key)}`;
+  },
+
+  unbindWeixin(agentId: number): Promise<WeixinAction> {
+    return adminFetch(`/agents/${agentId}/weixin/bind`, {
+      method: "DELETE",
+    });
+  },
+
+  // -- API Key Reveal --
+  revealAgentApiKey(agentId: number): Promise<{ agent_number: number; api_key: string }> {
+    return adminFetch(`/agents/${agentId}/api-key`, {
+      method: "POST",
     });
   },
 };

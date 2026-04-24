@@ -65,6 +65,7 @@ class LLMProvider(str, Enum):
     zhipuai = "zhipuai"
     minimax = "minimax"
     kimi = "kimi"
+    anthropic_compat = "anthropic-compat"
     custom = "custom"
 
 
@@ -124,8 +125,11 @@ class SoulMarkdown(BaseModel):
 class AgentSummary(BaseModel):
     id: int = Field(..., description="Agent number N")
     name: str = Field(..., description="Deployment name, e.g. hermes-gateway-4")
+    display_name: Optional[str] = None
     status: AgentStatus
     url_path: str = Field("", description="Ingress path, e.g. /agent4")
+    api_server_url: str = Field("", description="Full external API URL, e.g. http://host/agent4")
+    api_key_masked: str = Field("", description="Masked API key, e.g. abc***xyz")
     resources: ResourceUsage = Field(default_factory=ResourceUsage)
     restart_count: int = 0
     created_at: Optional[datetime.datetime] = None
@@ -142,8 +146,11 @@ class AgentListResponse(BaseModel):
 class AgentDetailResponse(BaseModel):
     id: int
     name: str
+    display_name: Optional[str] = None
     status: AgentStatus
     url_path: str
+    api_server_url: str = ""
+    api_key_masked: str = ""
     namespace: str = "hermes-agent"
     labels: dict[str, str] = {}
     created_at: Optional[datetime.datetime] = None
@@ -198,7 +205,14 @@ class LLMConfig(BaseModel):
 
 class CreateAgentRequest(BaseModel):
     agent_number: int = Field(..., ge=1, le=1000)
-    display_name: Optional[str] = None
+    display_name: Optional[str] = Field(None, max_length=128)
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def _strip_display_name(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+        return v if v else None
     resources: ResourceSpec = Field(default_factory=ResourceSpec)
     llm: LLMConfig
     soul_md: str = Field("You are a helpful, concise AI assistant.\n", max_length=1_000_000)
@@ -357,6 +371,15 @@ class ActionResponse(BaseModel):
     message: str = ""
 
 
+class TestAgentApiResponse(BaseModel):
+    agent_number: int
+    success: bool
+    status_code: Optional[int] = None
+    latency_ms: Optional[float] = None
+    error: Optional[str] = None
+    response_preview: Optional[str] = None
+
+
 # Settings
 DefaultResourceLimits = ResourceSpec
 
@@ -379,6 +402,31 @@ class UpdateAdminKeyRequest(BaseModel):
         pattern=r'^[A-Za-z0-9\-_./+=]+$',
         description="New admin API key (min 8 chars)",
     )
+
+
+# WeChat (Weixin) integration
+class WeixinStatusResponse(BaseModel):
+    agent_number: int
+    connected: bool
+    account_id: str = ""
+    user_id: str = ""
+    base_url: str = ""
+    dm_policy: str = "open"
+    group_policy: str = "disabled"
+    bound_at: Optional[str] = None
+
+
+class WeixinActionResponse(BaseModel):
+    agent_number: int
+    action: str
+    success: bool
+    message: str = ""
+
+
+# API Key Reveal
+class AgentApiKeyResponse(BaseModel):
+    agent_number: int
+    api_key: str
 
 
 # Generic

@@ -25,8 +25,83 @@ PROVIDER_URL_MAP = {
     "zhipuai":    "https://open.bigmodel.cn/api/paas/v4",
     "minimax":    "https://api.minimaxi.com/anthropic/v1",
     "kimi":       "https://api.moonshot.cn/v1",
+    "anthropic-compat": "",
     "custom":     "https://api.example.com/v1",
 }
+
+# Provider -> api_mode mapping for Anthropic-compatible providers.
+# When set, config.yaml includes `model.api_mode` so the agent uses the
+# correct wire protocol without relying on URL heuristic detection.
+PROVIDER_API_MODE_MAP: dict[str, str] = {
+    "anthropic": "anthropic_messages",
+    "anthropic-compat": "anthropic_messages",
+    "minimax": "anthropic_messages",
+}
+
+# Admin-only provider names that must be remapped to agent-recognized names
+# in config.yaml.  The admin dropdown uses distinct labels for UX, but the
+# agent only knows about a fixed set of providers.
+#
+# Dependency chain for each entry:
+#   PROVIDER_API_MODE_MAP  → determines api_mode in config.yaml
+#   PROVIDER_AGENT_MAP     → determines provider field in config.yaml
+#   PROVIDER_KEY_MAP (templates.py) → determines env var name in .env
+# All three must agree: the env var must be one the agent checks for the
+# remapped provider name.  E.g. minimax → custom in config → OPENAI_API_KEY
+# in .env, because the agent's _resolve_openrouter_runtime() checks
+# OPENAI_API_KEY for provider=custom.
+PROVIDER_AGENT_MAP: dict[str, str] = {
+    "anthropic-compat": "custom",
+    "minimax": "custom",
+}
+
+
+def strip_v1_suffix(url: str) -> str:
+    """Strip a trailing ``/v1`` from *url*.
+
+    The Anthropic SDK appends ``/v1/messages`` to ``base_url``.  If the URL
+    already ends with ``/v1`` (common for OpenAI-compatible endpoints like
+    MiniMax's ``/anthropic/v1``), calling this avoids a double
+    ``/v1/v1/messages``.
+    """
+    url = url.rstrip("/")
+    return url.removesuffix("/v1") if url.endswith("/v1") else url
+
+
+def determine_api_mode(provider: str) -> str | None:
+    """Determine api_mode for config.yaml generation.
+
+    Returns the resolved api_mode string, or None when the default
+    (chat_completions) should be left implicit.
+    """
+    return PROVIDER_API_MODE_MAP.get(provider)
+
+
+def resolve_agent_provider(provider: str) -> str:
+    """Map an admin provider name to the value written in config.yaml.
+
+    Admin-only providers (e.g. 'anthropic-compat') are remapped to a name
+    the agent recognises; standard providers pass through unchanged.
+    """
+    return PROVIDER_AGENT_MAP.get(provider, provider)
+
+
+# Anthropic-compatible providers that require Bearer auth instead of x-api-key.
+# Must stay in sync with anthropic_adapter._requires_bearer_auth().
+BEARER_AUTH_URL_PREFIXES = (
+    "https://api.minimax.io/anthropic",
+    "https://api.minimaxi.com/anthropic",
+)
+
+
+def is_bearer_auth_endpoint(base_url: str) -> bool:
+    """Return True for Anthropic-compatible providers that require Bearer auth.
+
+    Mirrors ``anthropic_adapter._requires_bearer_auth`` so the admin test path
+    uses the same auth strategy as the runtime.
+    """
+    normalized = base_url.rstrip("/").lower()
+    return normalized.startswith(BEARER_AUTH_URL_PREFIXES)
 
 
 def format_age(created: datetime.datetime | None) -> str:

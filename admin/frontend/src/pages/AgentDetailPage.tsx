@@ -18,6 +18,8 @@ import {
   statusLabel,
 } from "../lib/utils";
 import { showToast } from "../lib/toast";
+import { WeChatCard } from "../components/WeChatCard";
+import { WeChatQRModal } from "../components/WeChatQRModal";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,6 +84,9 @@ export function AgentDetailPage() {
     label: string;
     message: string;
   } | null>(null);
+
+  // WeChat QR modal
+  const [weixinQROpen, setWeixinQROpen] = useState(false);
 
   const loadAgent = useCallback(async () => {
     try {
@@ -162,9 +167,20 @@ export function AgentDetailPage() {
             <span
               className={`inline-block h-2.5 w-2.5 rounded-full ${statusDotColor(agent.status)} ${agent.status === "running" ? "animate-status-pulse" : ""}`}
             />
-            <h1 className="text-xl font-[family-name:var(--font-body)] font-semibold text-text-primary">
-              {agent.name}
-            </h1>
+            {agent.display_name ? (
+              <>
+                <h1 className="text-xl font-[family-name:var(--font-body)] font-semibold text-text-primary">
+                  {agent.display_name}
+                </h1>
+                <span className="text-text-secondary text-sm">
+                  {agent.name}
+                </span>
+              </>
+            ) : (
+              <h1 className="text-xl font-[family-name:var(--font-body)] font-semibold text-text-primary">
+                {agent.name}
+              </h1>
+            )}
             <span className="text-text-secondary text-xs">
               {statusLabel(agent.status, t)}
             </span>
@@ -240,7 +256,7 @@ export function AgentDetailPage() {
 
       {/* Tab content */}
       {activeTab === "overview" && (
-        <OverviewTab agent={agent} />
+        <OverviewTab agent={agent} onRegisterWeChat={() => setWeixinQROpen(true)} />
       )}
       {activeTab === "config" && (
         <ConfigTab agentId={agentId} />
@@ -254,6 +270,14 @@ export function AgentDetailPage() {
       {activeTab === "health" && (
         <HealthTab agentId={agentId} />
       )}
+
+      {/* WeChat QR Modal */}
+      <WeChatQRModal
+        agentId={agentId}
+        open={weixinQROpen}
+        onClose={() => setWeixinQROpen(false)}
+        onSuccess={loadAgent}
+      />
 
       {/* Confirm dialog */}
       <ConfirmDialog
@@ -284,8 +308,67 @@ export function AgentDetailPage() {
 // Overview Tab
 // ---------------------------------------------------------------------------
 
-function OverviewTab({ agent }: { agent: AgentDetail }) {
+function OverviewTab({ agent, onRegisterWeChat }: { agent: AgentDetail; onRegisterWeChat: () => void }) {
   const { t } = useI18n();
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null);
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [revealing, setRevealing] = useState(false);
+
+  async function handleTestApi() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await adminApi.testAgentApi(agent.id);
+      if (res.success) {
+        setTestResult({ success: true, msg: t.testApiLatency.replace("{n}", String(res.latency_ms)) });
+      } else {
+        setTestResult({ success: false, msg: res.error || t.testApiFailed });
+      }
+    } catch (err) {
+      setTestResult({ success: false, msg: getApiError(err, t.errorGeneric) });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  function handleCopy(text: string, label: string) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(
+          () => showToast(`${label} - ${t.copied}`),
+          () => showToast(t.errorGeneric, "error"),
+        );
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.cssText = "position:fixed;opacity:0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        showToast(`${label} - ${t.copied}`);
+      }
+    } catch {
+      showToast(t.errorGeneric, "error");
+    }
+  }
+
+  async function handleRevealKey() {
+    if (revealedKey) {
+      setRevealedKey(null);
+      return;
+    }
+    setRevealing(true);
+    try {
+      const res = await adminApi.revealAgentApiKey(agent.id);
+      setRevealedKey(res.api_key);
+    } catch (err) {
+      showToast(`${t.revealKey} - ${getApiError(err, t.errorGeneric)}`, "error");
+    } finally {
+      setRevealing(false);
+    }
+  }
 
   const cpuLimitMillicores =
     agent.resources.cpu_limit_millicores ?? agent.resources.cpu_cores !== null
@@ -325,6 +408,77 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
           value={`${runningPods}/${agent.pods.length}`}
         />
       </div>
+
+      {/* API Access */}
+      {(agent.api_server_url || agent.api_key_masked) && (
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-text-primary">{t.apiAccess}</h3>
+            <button
+              onClick={handleTestApi}
+              disabled={testing || agent.status !== "running"}
+              className="h-8 px-3 text-xs border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 rounded disabled:opacity-50"
+            >
+              {testing ? "..." : t.testApiConnection}
+            </button>
+          </div>
+          {testResult && (
+            <div className={`mb-3 text-xs px-3 py-2 rounded ${
+              testResult.success ? "bg-success/10 text-success" : "bg-accent-pink/10 text-accent-pink"
+            }`}>
+              {testResult.success ? t.testApiSuccess : t.testApiFailed}: {testResult.msg}
+            </div>
+          )}
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-text-secondary text-xs w-20 shrink-0">{t.apiServerUrl}:</span>
+              <span className="font-[family-name:var(--font-mono)] text-xs text-text-primary flex-1 truncate" title={agent.api_server_url}>
+                {agent.api_server_url || "-"}
+              </span>
+              {agent.api_server_url && (
+                <button
+                  onClick={() => handleCopy(agent.api_server_url, t.copyUrl)}
+                  className="shrink-0 text-accent-cyan hover:text-accent-cyan/80 text-xs px-2 py-1 border border-border rounded"
+                >
+                  {t.copy}
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-text-secondary text-xs w-20 shrink-0">{t.apiKeyMasked}:</span>
+              <span className="font-[family-name:var(--font-mono)] text-xs text-text-primary truncate">
+                {revealedKey || agent.api_key_masked || "-"}
+              </span>
+              <button
+                onClick={handleRevealKey}
+                disabled={revealing}
+                className="shrink-0 text-text-secondary hover:text-text-primary disabled:opacity-50"
+                title={revealedKey ? t.hideKey : t.revealKey}
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  {revealedKey ? (
+                    <>
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </>
+                  )}
+                </svg>
+              </button>
+              <button
+                onClick={() => handleCopy(revealedKey || agent.api_key_masked || "", t.copyKey)}
+                className="shrink-0 text-xs px-2 py-1 border border-border rounded text-text-secondary hover:text-text-primary hover:bg-surface"
+              >
+                {t.copy}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Resource usage */}
       <div className="rounded-lg border border-border bg-surface p-4">
@@ -368,6 +522,14 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
           </div>
         </div>
       </div>
+
+      {/* WeChat Connection */}
+      <WeChatCard
+        agentId={agent.id}
+        agentRunning={agent.status === "running"}
+        onRegister={onRegisterWeChat}
+        onRefresh={() => {}}
+      />
 
       {/* Pod info */}
       {agent.pods.length > 0 && (
@@ -630,8 +792,8 @@ function TextConfigEditor({
   loadFn: (id: number) => Promise<{ content: string }>;
   saveFn: (id: number, content: string) => Promise<unknown>;
   successMsg: string;
-  t: Record<string, string>;
-}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Translations has no index signature
+  t: any;}) {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);

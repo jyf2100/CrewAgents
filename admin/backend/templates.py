@@ -4,7 +4,7 @@ from typing import Optional
 import yaml
 
 from models import ResourceSpec, TemplateResponse, TemplateTypeResponse
-from constants import PROVIDER_URL_MAP
+from constants import PROVIDER_URL_MAP, strip_v1_suffix
 
 # Provider -> environment variable name mapping
 PROVIDER_KEY_MAP = {
@@ -13,9 +13,12 @@ PROVIDER_KEY_MAP = {
     "openai": "OPENAI_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "zhipuai": "GLM_API_KEY",
-    "minimax": "MINIMAX_API_KEY",
+    "minimax": "OPENAI_API_KEY",
     "kimi": "MOONSHOT_API_KEY",
-    "custom": "CUSTOM_API_KEY",
+    # Agent's _resolve_openrouter_runtime() checks OPENAI_API_KEY for custom
+    # endpoints — CUSTOM_API_KEY is not in the credential resolution path.
+    "anthropic-compat": "OPENAI_API_KEY",
+    "custom": "OPENAI_API_KEY",
 }
 
 
@@ -26,7 +29,7 @@ def deployment_name(agent_number: int) -> str:
 
 class TemplateGenerator:
 
-    def __init__(self, templates_dir: str | None = None):
+    def __init__(self, templates_dir: str | None = None, data_root: str | None = None):
         if templates_dir is None:
             # Default: templates/ sibling of the backend/ package directory
             # In Docker: __file__ = /app/templates.py -> dirname = /app -> templates_dir = /app/templates/
@@ -36,19 +39,34 @@ class TemplateGenerator:
             )
         else:
             self.templates_dir = templates_dir
+        # Persistent overrides directory — survives container restarts
+        if data_root:
+            self.persist_dir = os.path.join(data_root, "_admin", "templates")
+        else:
+            self.persist_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "persist_templates"
+            )
 
     def _read_template(self, name: str) -> str:
-        path = os.path.join(self.templates_dir, name)
-        if os.path.isfile(path):
-            with open(path) as f:
+        # Priority: persisted override > image-baked default
+        persisted = os.path.join(self.persist_dir, name)
+        if os.path.isfile(persisted):
+            with open(persisted) as f:
+                return f.read()
+        default = os.path.join(self.templates_dir, name)
+        if os.path.isfile(default):
+            with open(default) as f:
                 return f.read()
         return ""
 
     def _write_template(self, name: str, content: str) -> None:
-        os.makedirs(self.templates_dir, exist_ok=True)
-        path = os.path.join(self.templates_dir, name)
-        with open(path, "w") as f:
+        os.makedirs(self.persist_dir, exist_ok=True)
+        path = os.path.join(self.persist_dir, name)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
             f.write(content)
+        os.replace(tmp, path)
 
     def render_env(self, llm_config, extra_env: list | None = None) -> str:
         """Generate .env content from LLM config."""
@@ -65,7 +83,10 @@ class TemplateGenerator:
         lines.append(template if template else "# Hermes Agent Environment Configuration\n")
 
         # Inject API key
-        env_key = PROVIDER_KEY_MAP.get(provider, "CUSTOM_API_KEY")
+        env_key = PROVIDER_KEY_MAP.get(provider)
+        if not env_key:
+            raise ValueError(f"Unknown provider '{provider}' — no API key env var mapping. "
+                             f"Known providers: {', '.join(sorted(PROVIDER_KEY_MAP))}")
         lines.append(f"\n{env_key}={api_key}\n")
 
         if extra_env:
@@ -79,18 +100,26 @@ class TemplateGenerator:
 
     def render_config_yaml(self, default_model: str = "anthropic/claude-sonnet-4-20250514",
                            provider: str = "openrouter", base_url: str | None = None,
+                           api_mode: str | None = None,
                            terminal_enabled: bool = True, browser_enabled: bool = False,
                            streaming_enabled: bool = True, memory_enabled: bool = True,
                            session_reset_enabled: bool = False) -> str:
         """Generate config.yaml content."""
         provider = provider.value if hasattr(provider, "value") else provider
         resolved_url = base_url or PROVIDER_URL_MAP.get(provider, PROVIDER_URL_MAP["openrouter"])
+        # The Anthropic SDK appends /v1/messages to base_url. If the URL
+        # already ends with /v1, strip it to avoid /v1/v1/messages.
+        if api_mode == "anthropic_messages":
+            resolved_url = strip_v1_suffix(resolved_url)
+        model_cfg: dict = {
+            "default": default_model,
+            "provider": provider,
+            "base_url": resolved_url,
+        }
+        if api_mode:
+            model_cfg["api_mode"] = api_mode
         config_data = {
-            "model": {
-                "default": default_model,
-                "provider": provider,
-                "base_url": resolved_url,
-            },
+            "model": model_cfg,
             "terminal": {"enabled": terminal_enabled},
             "browser": {"enabled": browser_enabled},
             "streaming": {"enabled": streaming_enabled},
@@ -100,13 +129,17 @@ class TemplateGenerator:
         return yaml.dump(config_data, default_flow_style=False, allow_unicode=True)
 
     def render_deployment(self, agent_number: int, secret_name: str,
-                          resources: ResourceSpec, namespace: str = "hermes-agent") -> dict:
+                          resources: ResourceSpec, namespace: str = "hermes-agent",
+                          display_name: str | None = None) -> dict:
         """Return a dict for K8s Deployment creation."""
         name = deployment_name(agent_number)
+        metadata = {"name": name, "namespace": namespace}
+        if display_name:
+            metadata["annotations"] = {"hermes/display-name": display_name}
         return {
             "apiVersion": "apps/v1",
             "kind": "Deployment",
-            "metadata": {"name": name, "namespace": namespace},
+            "metadata": metadata,
             "spec": {
                 "replicas": 1,
                 "selector": {"matchLabels": {"app": name}},
@@ -127,6 +160,7 @@ class TemplateGenerator:
                                 {"name": "API_SERVER_KEY", "valueFrom": {
                                     "secretKeyRef": {"name": secret_name, "key": "api_key"}
                                 }},
+                                {"name": "API_SERVER_CORS_ORIGINS", "value": "*"},
                                 {"name": "GATEWAY_ALLOW_ALL_USERS", "value": "true"},
                                 {"name": "K8S_NAMESPACE", "value": namespace},
                                 {"name": "SANDBOX_POOL_NAME", "value": "hermes-sandbox-pool"},

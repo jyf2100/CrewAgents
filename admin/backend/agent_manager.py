@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import datetime
 import io
 import json
@@ -21,10 +22,11 @@ from models import (
     CreateAgentResponse, CreateStepStatus, EnvVariable, EventListResponse,
     HealthResponse, K8sEvent, MessageResponse, NodeInfo, PodInfo, ResourceUsage,
     TestLLMRequest, TestLLMResponse, DefaultResourceLimits, EventType,
+    TestAgentApiResponse,
 )
 from k8s_client import K8sClient
 from config_manager import ConfigManager
-from constants import SECRET_PATTERNS, PROVIDER_URL_MAP, format_age
+from constants import SECRET_PATTERNS, PROVIDER_URL_MAP, format_age, determine_api_mode, resolve_agent_provider, strip_v1_suffix, is_bearer_auth_endpoint
 from templates import deployment_name
 
 logger = logging.getLogger(__name__)
@@ -37,8 +39,53 @@ class AgentManager:
         self.namespace = namespace
         self.config_mgr = config_mgr or ConfigManager()
         from templates import TemplateGenerator
-        self.tpl = TemplateGenerator()
-        self._default_resources = DefaultResourceLimits()
+        self.tpl = TemplateGenerator(data_root=self.config_mgr.data_root)
+        self._default_resources = self._load_default_resources()
+        self._external_url_prefix = os.getenv("EXTERNAL_URL_PREFIX", "")
+
+    @staticmethod
+    def _mask_api_key(key: str) -> str:
+        """Show first 3 and last 3 chars, mask the middle."""
+        if len(key) <= 8:
+            return "***"
+        return f"{key[:3]}***{key[-3:]}"
+
+    async def _get_agent_api_key(self, agent_num: int) -> str | None:
+        """Read the API key from the K8s secret for an agent."""
+        name = deployment_name(agent_num)
+        secret_name = f"{name}-secret"
+        try:
+            secret = await self.k8s.get_secret(secret_name)
+            if secret and secret.data and "api_key" in secret.data:
+                return base64.b64decode(secret.data["api_key"]).decode("utf-8")
+        except Exception as e:
+            logger.debug("Failed to read secret for agent %s: %s", agent_num, e)
+        return None
+
+    async def get_agent_api_key_full(self, agent_id: int) -> str:
+        """Return the full unmasked API key for an agent."""
+        key = await self._get_agent_api_key(agent_id)
+        if not key:
+            raise HTTPException(404, f"API key not found for agent {agent_id}")
+        return key
+
+    async def _get_agent_api_url(self, agent_num: int) -> str:
+        """Build the external API URL for an agent."""
+        path = f"/agent{agent_num}" if agent_num > 0 else ""
+        if self._external_url_prefix:
+            return f"{self._external_url_prefix.rstrip('/')}{path}"
+        # Try to derive from ingress
+        try:
+            ingress = await self.k8s.get_ingress("hermes-ingress")
+            if ingress and ingress.spec.rules:
+                host = ingress.spec.rules[0].host
+                if host:
+                    tls = ingress.spec.tls
+                    scheme = "https" if tls else "http"
+                    return f"{scheme}://{host}{path}"
+        except Exception:
+            pass
+        return path
 
     @staticmethod
     def _resolve_status(replicas: int, available: int, conditions=None) -> AgentStatus:
@@ -76,33 +123,49 @@ class AgentManager:
             status = self._resolve_status(replicas, available, dep.status.conditions)
             created = dep.metadata.creation_timestamp
             age_human = format_age(created)
+            display_name = (dep.metadata.annotations or {}).get("hermes/display-name")
 
-            agent_meta.append((agent_num, name, status, created, age_human))
+            agent_meta.append((agent_num, name, status, created, age_human, display_name))
 
-        # Parallel fetch resource usage for all agents at once
+        # Parallel fetch resource usage + API info for all agents at once
         agent_nums = [m[0] for m in agent_meta]
         resource_map: dict[int, ResourceUsage] = {}
+        api_url_map: dict[int, str] = {}
+        api_key_map: dict[int, str] = {}
         if agent_nums:
-            resource_results = await asyncio.gather(
+            all_results = await asyncio.gather(
                 *[self.get_resource_usage(n) for n in agent_nums],
+                *[self._get_agent_api_url(n) for n in agent_nums],
+                *[self._get_agent_api_key(n) for n in agent_nums],
                 return_exceptions=True,
             )
-            for n, r in zip(agent_nums, resource_results):
+            n_agents = len(agent_nums)
+            for i, n in enumerate(agent_nums):
+                r = all_results[i]
                 resource_map[n] = r if not isinstance(r, Exception) else ResourceUsage()
+            for i, n in enumerate(agent_nums):
+                url = all_results[n_agents + i]
+                api_url_map[n] = url if not isinstance(url, Exception) else ""
+            for i, n in enumerate(agent_nums):
+                key = all_results[2 * n_agents + i]
+                api_key_map[n] = self._mask_api_key(key) if key and not isinstance(key, Exception) else ""
 
         # Second pass: build AgentSummary with pre-fetched resources
         agents = [
             AgentSummary(
                 id=agent_num,
                 name=name,
+                display_name=display_name,
                 status=status,
                 url_path=f"/agent{agent_num}" if agent_num > 0 else "",
+                api_server_url=api_url_map.get(agent_num, ""),
+                api_key_masked=api_key_map.get(agent_num, ""),
                 resources=resource_map.get(agent_num, ResourceUsage()),
                 restart_count=0,
                 created_at=created,
                 age_human=age_human,
             )
-            for agent_num, name, status, created, age_human in agent_meta
+            for agent_num, name, status, created, age_human, display_name in agent_meta
         ]
         return AgentListResponse(agents=agents, total=len(agents))
 
@@ -160,11 +223,21 @@ class AgentManager:
         except Exception:
             logger.debug("Failed to get resource usage for agent %s", name)
 
+        # API access info
+        api_server_url = await self._get_agent_api_url(agent_id)
+        api_key = await self._get_agent_api_key(agent_id)
+        api_key_masked = self._mask_api_key(api_key) if api_key else ""
+
+        display_name = (dep.metadata.annotations or {}).get("hermes/display-name")
+
         return AgentDetailResponse(
             id=agent_id,
             name=name,
+            display_name=display_name,
             status=status,
             url_path=f"/agent{agent_id}",
+            api_server_url=api_server_url,
+            api_key_masked=api_key_masked,
             namespace=self.namespace,
             labels=dep.metadata.labels or {},
             created_at=created,
@@ -209,10 +282,12 @@ class AgentManager:
             env_content = self.tpl.render_env(req.llm, req.extra_env)
             with open(f"{data_dir}/.env", "w") as f:
                 f.write(env_content)
+            provider_val = req.llm.provider.value
             config_content = self.tpl.render_config_yaml(
                 default_model=req.llm.model,
-                provider=req.llm.provider,
+                provider=resolve_agent_provider(provider_val),
                 base_url=req.llm.base_url,
+                api_mode=determine_api_mode(provider_val),
                 terminal_enabled=req.terminal_enabled,
                 browser_enabled=req.browser_enabled,
                 streaming_enabled=req.streaming_enabled,
@@ -236,7 +311,7 @@ class AgentManager:
         try:
             deployment_body = self.tpl.render_deployment(
                 agent_number=agent_num, secret_name=secret_name, resources=req.resources,
-                namespace=self.namespace,
+                namespace=self.namespace, display_name=req.display_name,
             )
             await self.k8s.create_deployment(deployment_body)
             step.status = "done"
@@ -382,6 +457,55 @@ class AgentManager:
             return HealthResponse(status="error",
                                  checked_at=datetime.datetime.now(datetime.timezone.utc),
                                  gateway_raw={"error": str(e)})
+
+    # --- Test Agent API ---
+    async def test_agent_api(self, agent_id: int) -> TestAgentApiResponse:
+        """Test the agent's external API with an OpenAI-compatible chat completion call."""
+        api_url = await self._get_agent_api_url(agent_id)
+        api_key = await self._get_agent_api_key(agent_id)
+        if not api_url:
+            return TestAgentApiResponse(
+                agent_number=agent_id, success=False,
+                error="API URL not available (ingress not configured or EXTERNAL_URL_PREFIX not set)")
+        if not api_key:
+            return TestAgentApiResponse(
+                agent_number=agent_id, success=False,
+                error="API key not found in K8s secret")
+
+        url = f"{api_url.rstrip('/')}/v1/chat/completions"
+        payload = {
+            "model": "test",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+            "stream": False,
+        }
+        start = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    url,
+                    json=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                    },
+                )
+                latency_ms = round((time.monotonic() - start) * 1000, 1)
+                if resp.status_code in (200, 201):
+                    return TestAgentApiResponse(
+                        agent_number=agent_id, success=True,
+                        status_code=resp.status_code, latency_ms=latency_ms,
+                        response_preview="OK")
+                safe_error = re.sub(r'Bearer\s+\S+', 'Bearer ***', resp.text[:200])
+                return TestAgentApiResponse(
+                    agent_number=agent_id, success=False,
+                    status_code=resp.status_code, latency_ms=latency_ms,
+                    error=f"HTTP {resp.status_code}: {safe_error}")
+        except Exception as e:
+            return TestAgentApiResponse(
+                agent_number=agent_id, success=False,
+                latency_ms=round((time.monotonic() - start) * 1000, 1),
+                error=str(e))
 
     # --- Stream Logs ---
     async def stream_logs(self, agent_id: int, tail: int = 500,
@@ -622,18 +746,34 @@ class AgentManager:
 
     # --- Test LLM Connection ---
     async def test_llm(self, req: TestLLMRequest) -> TestLLMResponse:
-        base_url = req.base_url or PROVIDER_URL_MAP.get(req.provider, PROVIDER_URL_MAP["openrouter"])
-        url = f"{base_url.rstrip('/')}/chat/completions"
-        payload = {"model": req.model, "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 5, "temperature": 0}
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {req.api_key}"}
-        if req.provider == "anthropic" and "anthropic.com" in base_url:
-            url = f"{base_url.rstrip('/')}/messages"
+        provider_val = req.provider.value
+        base_url = req.base_url or PROVIDER_URL_MAP.get(provider_val)
+        api_mode = determine_api_mode(provider_val)
+
+        if not base_url:
+            return TestLLMResponse(success=False, latency_ms=0, model_used=req.model,
+                                   error="Base URL is required for this provider. "
+                                         "Please provide the API endpoint URL.")
+
+        if api_mode == "anthropic_messages":
+            # Anthropic Messages protocol: POST /v1/messages
+            resolved = strip_v1_suffix(base_url)
+            url = f"{resolved}/v1/messages"
             payload = {"model": req.model, "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 5}
-            headers = {"Content-Type": "application/json", "x-api-key": req.api_key, "anthropic-version": "2023-06-01"}
-        elif req.provider == "minimax" and "minimaxi.com" in base_url:
-            url = f"{base_url.rstrip('/')}/messages"
-            payload = {"model": req.model, "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 5}
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {req.api_key}", "anthropic-version": "2023-06-01"}
+            if provider_val == "anthropic":
+                headers = {"Content-Type": "application/json", "x-api-key": req.api_key, "anthropic-version": "2023-06-01"}
+            elif resolved and is_bearer_auth_endpoint(resolved):
+                # MiniMax requires Authorization: Bearer (matches runtime's _requires_bearer_auth)
+                headers = {"Content-Type": "application/json", "Authorization": f"Bearer {req.api_key}", "anthropic-version": "2023-06-01"}
+            else:
+                # Other third-party Anthropic-compatible proxies use x-api-key
+                # (matches runtime's _is_third_party_anthropic_endpoint branch)
+                headers = {"Content-Type": "application/json", "x-api-key": req.api_key, "anthropic-version": "2023-06-01"}
+        else:
+            # OpenAI Chat Completions protocol (default)
+            url = f"{base_url.rstrip('/')}/chat/completions"
+            payload = {"model": req.model, "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 5, "temperature": 0}
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {req.api_key}"}
         start = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -734,8 +874,30 @@ class AgentManager:
             total = running = 0
         return ClusterStatusResponse(nodes=node_infos, namespace=self.namespace, total_agents=total, running_agents=running)
 
+    def _default_resources_path(self) -> str:
+        admin_dir = os.path.join(self.config_mgr.data_root, "_admin")
+        return os.path.join(admin_dir, "default_resources.json")
+
+    def _load_default_resources(self) -> DefaultResourceLimits:
+        path = self._default_resources_path()
+        if os.path.isfile(path):
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                return DefaultResourceLimits(**data)
+            except Exception:
+                pass
+        return DefaultResourceLimits()
+
     def get_default_resource_limits(self) -> DefaultResourceLimits:
         return self._default_resources
 
     def set_default_resource_limits(self, limits: DefaultResourceLimits) -> None:
         self._default_resources = limits
+        admin_dir = os.path.join(self.config_mgr.data_root, "_admin")
+        os.makedirs(admin_dir, exist_ok=True)
+        path = self._default_resources_path()
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(limits.model_dump(), f, indent=2)
+        os.replace(tmp, path)

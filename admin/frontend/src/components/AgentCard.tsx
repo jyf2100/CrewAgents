@@ -15,6 +15,20 @@ import {
 import { showToast } from "../lib/toast";
 import { ConfirmDialog } from "./ConfirmDialog";
 
+function copyToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;opacity:0";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+  return Promise.resolve();
+}
+
 // ---------------------------------------------------------------------------
 // AgentCard component
 // ---------------------------------------------------------------------------
@@ -30,6 +44,10 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null);
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [revealing, setRevealing] = useState(false);
   const menuRef = useRef<HTMLDetailsElement>(null);
 
   // Close menu when clicking outside
@@ -107,6 +125,48 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
     await doAction(() => adminApi.deleteAgent(agent.id, true), t.delete);
   }
 
+  async function handleTestApi() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await adminApi.testAgentApi(agent.id);
+      if (res.success) {
+        setTestResult({ success: true, msg: t.testApiLatency.replace("{n}", String(res.latency_ms)) });
+      } else {
+        setTestResult({ success: false, msg: res.error || t.testApiFailed });
+      }
+    } catch (err) {
+      setTestResult({ success: false, msg: getApiError(err, t.errorGeneric) });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function handleCopy(text: string, label: string) {
+    try {
+      await copyToClipboard(text);
+      showToast(`${label} - ${t.copied}`);
+    } catch {
+      showToast(t.errorGeneric, "error");
+    }
+  }
+
+  async function handleRevealKey() {
+    if (revealedKey) {
+      setRevealedKey(null);
+      return;
+    }
+    setRevealing(true);
+    try {
+      const res = await adminApi.revealAgentApiKey(agent.id);
+      setRevealedKey(res.api_key);
+    } catch (err) {
+      showToast(`${t.revealKey} - ${getApiError(err, t.errorGeneric)}`, "error");
+    } finally {
+      setRevealing(false);
+    }
+  }
+
   return (
     <>
       <div
@@ -125,9 +185,20 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
             <span className="text-xs text-text-secondary">
               {statusLabel(agent.status, t)}
             </span>
-            <span className="text-sm font-semibold font-[family-name:var(--font-body)] text-text-primary truncate">
-              {agent.name}
-            </span>
+            {agent.display_name ? (
+              <>
+                <span className="text-sm font-semibold font-[family-name:var(--font-body)] text-text-primary truncate">
+                  {agent.display_name}
+                </span>
+                <span className="text-xs text-text-secondary truncate">
+                  {agent.name}
+                </span>
+              </>
+            ) : (
+              <span className="text-sm font-semibold font-[family-name:var(--font-body)] text-text-primary truncate">
+                {agent.name}
+              </span>
+            )}
           </div>
           {/* Kebab menu */}
           <details
@@ -258,6 +329,79 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
             />
           </div>
         </div>
+
+        {/* API Access */}
+        {(agent.api_server_url || agent.api_key_masked) && (
+          <div className="rounded-md bg-background/50 border border-border-subtle p-2 space-y-1.5">
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-text-secondary shrink-0">{t.apiServerUrl}:</span>
+              <span className="font-[family-name:var(--font-mono)] text-text-primary truncate flex-1 min-w-0" title={agent.api_server_url}>
+                {agent.api_server_url || "-"}
+              </span>
+              {agent.api_server_url && (
+                <button
+                  onClick={() => handleCopy(agent.api_server_url, t.copyUrl)}
+                  className="shrink-0 text-accent-cyan hover:text-accent-cyan/80"
+                  title={t.copyUrl}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-text-secondary shrink-0">{t.apiKeyMasked}:</span>
+              <span className="font-[family-name:var(--font-mono)] text-text-primary truncate">
+                {revealedKey || agent.api_key_masked || "-"}
+              </span>
+              <button
+                onClick={handleRevealKey}
+                disabled={revealing}
+                className="shrink-0 text-text-secondary hover:text-text-primary disabled:opacity-50"
+                title={revealedKey ? t.hideKey : t.revealKey}
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  {revealedKey ? (
+                    <>
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </>
+                  )}
+                </svg>
+              </button>
+              <button
+                onClick={() => handleCopy(revealedKey || agent.api_key_masked || "", t.copyKey)}
+                className="shrink-0 text-accent-cyan hover:text-accent-cyan/80"
+                title={t.copyKey}
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              </button>
+              <div className="flex-1" />
+              <button
+                onClick={handleTestApi}
+                disabled={testing || !isRunning}
+                className="shrink-0 px-2 py-0.5 text-[10px] rounded border border-border hover:bg-surface text-text-secondary hover:text-text-primary disabled:opacity-50"
+              >
+                {testing ? "..." : t.testApiConnection}
+              </button>
+            </div>
+            {testResult && (
+              <div className={`text-[10px] ${testResult.success ? "text-success" : "text-accent-pink"}`}>
+                {testResult.success ? t.testApiSuccess : t.testApiFailed}: {testResult.msg}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Footer: restart count, age, detail button */}
         <div className="flex items-center justify-between mt-1">

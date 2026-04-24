@@ -241,6 +241,17 @@ export const en: Translations = {
   version: "Version",
   documentation: "Documentation",
 
+  // API Access
+  apiAccess: "API Access",
+  apiServerUrl: "API Server URL",
+  apiKeyMasked: "API Key",
+  testApiConnection: "Test Connection",
+  testApiSuccess: "Connection successful",
+  testApiFailed: "Connection failed",
+  testApiLatency: "Latency: {n}ms",
+  copyUrl: "Copy URL",
+  copyKey: "Copy Key",
+
   // Admin-specific
   validationAdminKeyLength: "Admin key must be at least 8 characters",
   keyMismatch: "The two keys do not match",
@@ -278,4 +289,25 @@ export const en: Translations = {
 
   // Misc
   envVarCount: "{n} variable(s)",
+
+  // WeChat (Weixin)
+  weixinConnection: "WeChat Connection",
+  weixinNotConnected: "Not Connected",
+  weixinNotConnectedDesc: "Not connected to WeChat",
+  weixinRegister: "Register WeChat",
+  weixinReregister: "Re-register",
+  weixinUnbind: "Unbind",
+  weixinUnbound: "WeChat unbound",
+  weixinUnbindConfirm: "Are you sure you want to unbind WeChat? The agent will restart.",
+  weixinAccount: "Account",
+  weixinBoundAt: "Bound",
+  weixinGroups: "Groups",
+  weixinQRTitle: "Scan QR with WeChat",
+  weixinScanned: "Scanned",
+  weixinWaiting: "Waiting...",
+  weixinConnected: "WeChat connected!",
+
+  // API Key Reveal
+  revealKey: "Reveal Key",
+  hideKey: "Hide Key",
 };

@@ -4,6 +4,7 @@ Hermes Admin API - FastAPI application for managing Hermes Agent instances on Ku
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import os
 import re
@@ -20,7 +21,7 @@ from starlette.responses import Response as StarletteResponse
 from pathlib import Path
 
 from models import (
-    ActionResponse, AgentDetailResponse, AgentListResponse,
+    ActionResponse, AgentApiKeyResponse, AgentDetailResponse, AgentListResponse,
     BackupRequest, BackupResponse, ClusterStatusResponse,
     ConfigWriteRequest, CreateAgentRequest, CreateAgentResponse,
     EnvReadResponse, EnvWriteRequest, EventListResponse,
@@ -28,12 +29,14 @@ from models import (
     ConfigYaml, TemplateResponse, TemplateTypeResponse,
     TestLLMRequest, TestLLMResponse, UpdateResourceLimitsRequest,
     UpdateAdminKeyRequest, UpdateTemplateRequest, SettingsResponse,
-    DefaultResourceLimits,
+    DefaultResourceLimits, TestAgentApiResponse,
+    WeixinStatusResponse, WeixinActionResponse,
 )
 from k8s_client import K8sClient
 from agent_manager import AgentManager
 from config_manager import ConfigManager
 from templates import TemplateGenerator
+from weixin import stream_weixin_qr, start_qr_session, end_qr_session, read_weixin_status, unbind_weixin
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -43,6 +46,7 @@ K8S_NAMESPACE = os.getenv("K8S_NAMESPACE", "hermes-agent")
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 HERMES_DATA_ROOT = os.getenv("HERMES_DATA_ROOT", "/data/hermes")
 
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("hermes-admin")
 
 # ---------------------------------------------------------------------------
@@ -126,7 +130,7 @@ async def verify_admin_key(x_admin_key: str = Header(..., alias="X-Admin-Key")):
     if not ADMIN_KEY:
         # No key configured -- allow all requests (dev mode).
         return True
-    if x_admin_key != ADMIN_KEY:
+    if not hmac.compare_digest(x_admin_key, ADMIN_KEY):
         raise HTTPException(status_code=401, detail="Invalid admin key")
     return True
 
@@ -148,7 +152,7 @@ async def health():
 k8s = K8sClient(namespace=K8S_NAMESPACE)
 config_mgr = ConfigManager(data_root=HERMES_DATA_ROOT)
 manager = AgentManager(k8s=k8s, namespace=K8S_NAMESPACE, config_mgr=config_mgr)
-tpl = TemplateGenerator()
+tpl = TemplateGenerator(data_root=HERMES_DATA_ROOT)
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +180,12 @@ async def _startup_cleanup():
             await asyncio.sleep(60)
             _cleanup_expired_sse_tokens()
     asyncio.create_task(_sweep())
+
+
+@app.on_event("startup")
+async def _warn_no_auth():
+    if not ADMIN_KEY:
+        logger.warning("ADMIN_KEY not set — all API endpoints are unauthenticated!")
 
 
 def _verify_sse_token(agent_id: int, token: str) -> bool:
@@ -311,6 +321,13 @@ async def agent_health(agent_id: int):
     return await manager.check_health(agent_id)
 
 
+@app.post(f"{API_PREFIX}/agents/{{agent_id}}/test-api", response_model=TestAgentApiResponse,
+          dependencies=[auth], tags=["agents-monitoring"])
+async def test_agent_api(agent_id: int):
+    """Test the agent's external API endpoint via ingress URL."""
+    return await manager.test_agent_api(agent_id)
+
+
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/logs/token",
          dependencies=[auth], tags=["agents-monitoring"])
 async def get_logs_token(agent_id: int):
@@ -351,6 +368,18 @@ async def agent_events(agent_id: int):
     return await manager.get_events(agent_id)
 
 
+@app.post(f"{API_PREFIX}/agents/{{agent_id}}/api-key", response_model=AgentApiKeyResponse,
+          dependencies=[auth], tags=["agents-monitoring"])
+async def reveal_agent_api_key(agent_id: int, request: Request):
+    """Reveal the full API key for an agent. Audit-logged."""
+    logger.info("API key revealed for agent %d from %s", agent_id, request.client.host if request.client else "unknown")
+    key = await manager.get_agent_api_key_full(agent_id)
+    response = JSONResponse(content=AgentApiKeyResponse(agent_number=agent_id, api_key=key).model_dump())
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/resources",
          dependencies=[auth], tags=["agents-monitoring"])
 async def agent_resources(agent_id: int):
@@ -382,6 +411,70 @@ async def download_backup(filename: str):
         media_type="application/gzip",
         filename=filename,
     )
+
+
+# ===================================================================
+# WeChat (Weixin) Integration
+# ===================================================================
+
+@app.get(f"{API_PREFIX}/agents/{{agent_id}}/weixin/qr",
+         tags=["agents-weixin"])
+async def weixin_qr_login(agent_id: int, key: str = Query(..., alias="key")):
+    """Initiate WeChat QR login session. Returns SSE stream.
+
+    Uses query-param auth because EventSource cannot set custom headers.
+    """
+    # Auth via query param (EventSource limitation)
+    if not ADMIN_KEY or not hmac.compare_digest(key, ADMIN_KEY):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    # Validate agent exists
+    try:
+        detail = await manager.get_agent_detail(agent_id)
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Check agent is running
+    if detail.status.value != "running":
+        raise HTTPException(status_code=400, detail="Agent must be running to register WeChat")
+
+    agent_dir = os.path.join(HERMES_DATA_ROOT, f"agent{agent_id}")
+
+    return StreamingResponse(
+        stream_weixin_qr(agent_id, agent_dir, restart_callback=manager.restart_agent),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get(f"{API_PREFIX}/agents/{{agent_id}}/weixin/status",
+         response_model=WeixinStatusResponse,
+         dependencies=[auth], tags=["agents-weixin"])
+async def weixin_status(agent_id: int):
+    """Get WeChat connection status for an agent."""
+    agent_dir = os.path.join(HERMES_DATA_ROOT, f"agent{agent_id}")
+    return read_weixin_status(agent_dir, agent_id)
+
+
+@app.delete(f"{API_PREFIX}/agents/{{agent_id}}/weixin/bind",
+            response_model=WeixinActionResponse,
+            dependencies=[auth], tags=["agents-weixin"])
+async def weixin_unbind(agent_id: int):
+    """Unbind WeChat from an agent."""
+    agent_dir = os.path.join(HERMES_DATA_ROOT, f"agent{agent_id}")
+    unbind_weixin(agent_dir, agent_id)
+
+    # Restart agent to pick up the changes
+    msg = "WeChat unbound and agent restarted"
+    try:
+        await manager.restart_agent(agent_id)
+    except Exception:
+        msg = "WeChat unbound but agent restart failed"
+
+    return WeixinActionResponse(agent_number=agent_id, action="unbind", success=True, message=msg)
 
 
 # ===================================================================
