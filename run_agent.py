@@ -664,6 +664,7 @@ class AIAgent:
         # would mangle the escape sequences.  None = use builtins.print.
         self._print_fn = None
         self.background_review_callback = None  # Optional sync callback for gateway delivery
+        self._swarm_client = None
         self.skip_context_files = skip_context_files
         self.pass_session_id = pass_session_id
         self.persist_session = persist_session
@@ -1240,6 +1241,14 @@ class AIAgent:
         except Exception:
             pass
 
+        # Swarm collaboration — optional, reads swarm: section from config.yaml
+        try:
+            _swarm_cfg = _agent_cfg.get("swarm", {})
+            if _swarm_cfg.get("enabled"):
+                self._init_swarm(_swarm_cfg)
+        except Exception:
+            logger.debug("swarm: optional init skipped", exc_info=True)
+
         # Tool-use enforcement config: "auto" (default — matches hardcoded
         # model list), true (always), false (never), or list of substrings.
         _agent_section = _agent_cfg.get("agent", {})
@@ -1740,6 +1749,59 @@ class AIAgent:
         ``hermes chat -q``.
         """
         return self.quiet_mode and not self.tool_progress_callback
+
+    def _init_swarm(self, swarm_cfg: dict) -> None:
+        """Initialize swarm client if config.yaml has swarm.enabled=true."""
+        import redis as _redis
+        from swarm.client import SwarmClient
+        from swarm.resilient_client import ResilientSwarmClient
+
+        redis_url = swarm_cfg.get("message_bus", "")
+        if not redis_url:
+            return
+
+        # Determine agent_id from session or deployment context
+        _agent_id = 0
+        _deployment = os.getenv("K8S_DEPLOYMENT", "")
+        if _deployment:
+            _parts = _deployment.replace("hermes-gateway", "").lstrip("-")
+            _agent_id = int(_parts) if _parts.isdigit() else 0
+
+        try:
+            _redis_client = _redis.from_url(
+                redis_url, decode_responses=True, socket_connect_timeout=3
+            )
+            _inner = SwarmClient(
+                agent_id=_agent_id,
+                redis_client=_redis_client,
+                capabilities=swarm_cfg.get("capabilities", []),
+                max_tasks=swarm_cfg.get("max_concurrent_tasks", 3),
+            )
+            self._swarm_client = ResilientSwarmClient(
+                inner=_inner,
+                on_degrade=self._on_swarm_degrade,
+                on_recover=self._on_swarm_recover,
+            )
+            self._swarm_client.start()
+
+            # Wire up the swarm_delegate tool handler
+            try:
+                from tools.swarm_tool import _init_swarm_client
+                _init_swarm_client(self._swarm_client)
+            except Exception:
+                pass
+
+            if self.verbose_logging:
+                logger.info("swarm: initialized for agent %d (url=%s)", _agent_id, redis_url)
+        except Exception as exc:
+            logger.warning("swarm: init failed, running standalone: %s", exc)
+            self._swarm_client = None
+
+    def _on_swarm_degrade(self) -> None:
+        logger.warning("swarm: degraded to standalone mode")
+
+    def _on_swarm_recover(self) -> None:
+        logger.info("swarm: recovered to swarm mode")
 
     def _emit_status(self, message: str) -> None:
         """Emit a lifecycle status message to both CLI and gateway channels.

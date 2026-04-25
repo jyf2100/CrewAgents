@@ -40,3 +40,11 @@ memory:
 
 session_reset:
   enabled: false
+
+# swarm:
+#   enabled: false
+#   capabilities: []
+#   max_concurrent_tasks: 3
+#   message_bus: "redis://hermes-redis:6379/0"
+#   heartbeat_interval: 30
+#   registry_enabled: true

@@ -41,6 +41,10 @@ spec:
               value: "hermes-sandbox-pool"
             - name: SANDBOX_TTL_MINUTES
               value: "30"
+            - name: SWARM_REDIS_URL
+              value: "redis://hermes-redis:6379/0"
+            - name: K8S_DEPLOYMENT
+              value: "hermes-gateway"
           resources:
             requests:
               cpu: 250m

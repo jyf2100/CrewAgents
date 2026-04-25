@@ -103,7 +103,11 @@ class TemplateGenerator:
                            api_mode: str | None = None,
                            terminal_enabled: bool = True, browser_enabled: bool = False,
                            streaming_enabled: bool = True, memory_enabled: bool = True,
-                           session_reset_enabled: bool = False) -> str:
+                           session_reset_enabled: bool = False,
+                           swarm_enabled: bool = False,
+                           swarm_capabilities: list[str] | None = None,
+                           swarm_max_tasks: int = 3,
+                           swarm_redis_url: str = "redis://hermes-redis:6379/0") -> str:
         """Generate config.yaml content."""
         provider = provider.value if hasattr(provider, "value") else provider
         resolved_url = base_url or PROVIDER_URL_MAP.get(provider, PROVIDER_URL_MAP["openrouter"])
@@ -126,6 +130,14 @@ class TemplateGenerator:
             "memory": {"enabled": memory_enabled},
             "session_reset": {"enabled": session_reset_enabled},
         }
+        if swarm_enabled:
+            config_data["swarm"] = {
+                "enabled": True,
+                "capabilities": swarm_capabilities or [],
+                "max_concurrent_tasks": swarm_max_tasks,
+                "message_bus": swarm_redis_url,
+                "heartbeat_interval": 30,
+            }
         return yaml.dump(config_data, default_flow_style=False, allow_unicode=True)
 
     def render_deployment(self, agent_number: int, secret_name: str,
@@ -165,6 +177,8 @@ class TemplateGenerator:
                                 {"name": "K8S_NAMESPACE", "value": namespace},
                                 {"name": "SANDBOX_POOL_NAME", "value": "hermes-sandbox-pool"},
                                 {"name": "SANDBOX_TTL_MINUTES", "value": "30"},
+                                {"name": "SWARM_REDIS_URL", "value": "redis://hermes-redis:6379/0"},
+                                {"name": "K8S_DEPLOYMENT", "value": name},
                             ],
                             "resources": {
                                 "requests": {"cpu": resources.cpu_request, "memory": resources.memory_request},

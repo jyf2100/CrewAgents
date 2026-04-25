@@ -222,6 +222,9 @@ class CreateAgentRequest(BaseModel):
     streaming_enabled: bool = True
     memory_enabled: bool = True
     session_reset_enabled: bool = False
+    swarm_enabled: bool = False
+    swarm_capabilities: list[str] = []
+    swarm_max_tasks: int = 3
 
 
 class CreateStepStatus(BaseModel):

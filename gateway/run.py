@@ -199,6 +199,21 @@ if _config_path.exists():
         _tz_cfg = _cfg.get("timezone", "")
         if _tz_cfg and isinstance(_tz_cfg, str) and "HERMES_TIMEZONE" not in os.environ:
             os.environ["HERMES_TIMEZONE"] = _tz_cfg.strip()
+        # Swarm collaboration config — bridge to SWARM_* env vars.
+        _swarm_cfg = _cfg.get("swarm", {})
+        if _swarm_cfg and isinstance(_swarm_cfg, dict):
+            _swarm_env_map = {
+                "enabled": "SWARM_ENABLED",
+                "message_bus": "SWARM_REDIS_URL",
+                "heartbeat_interval": "SWARM_HEARTBEAT_INTERVAL",
+            }
+            for _cfg_key, _env_var in _swarm_env_map.items():
+                if _cfg_key in _swarm_cfg and _env_var not in os.environ:
+                    _val = _swarm_cfg[_cfg_key]
+                    if isinstance(_val, list):
+                        os.environ[_env_var] = json.dumps(_val)
+                    else:
+                        os.environ[_env_var] = str(_val)
         # Security settings
         _security_cfg = _cfg.get("security", {})
         if isinstance(_security_cfg, dict):

@@ -293,6 +293,9 @@ class AgentManager:
                 streaming_enabled=req.streaming_enabled,
                 memory_enabled=req.memory_enabled,
                 session_reset_enabled=req.session_reset_enabled,
+                swarm_enabled=req.swarm_enabled,
+                swarm_capabilities=req.swarm_capabilities,
+                swarm_max_tasks=req.swarm_max_tasks,
             )
             with open(f"{data_dir}/config.yaml", "w") as f:
                 f.write(config_content)
