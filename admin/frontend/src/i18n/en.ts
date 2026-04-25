@@ -310,4 +310,25 @@ export const en: Translations = {
   // API Key Reveal
   revealKey: "Reveal Key",
   hideKey: "Hide Key",
+
+  // Swarm
+  swarmOverview: "Swarm Overview",
+  swarmAgents: "Swarm Agents",
+  swarmNoAgents: "No swarm agents registered",
+  swarmHealth: "Health",
+  swarmConnected: "Connected",
+  swarmDisconnected: "Disconnected",
+  swarmReconnecting: "Reconnecting...",
+  navSwarm: "Swarm",
+  last5min: "Last 5 min",
+  submitted: "Submitted",
+  completed: "Completed",
+  failed: "Failed",
+  queued: "Queued",
+  load: "Load",
+  model: "Model",
+  latency: "Latency",
+  memory: "Memory",
+  clients: "Clients",
+  redisLabel: "Redis",
 };

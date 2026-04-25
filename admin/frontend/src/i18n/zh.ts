@@ -288,6 +288,27 @@ export interface Translations {
   // API Key Reveal
   revealKey: string;
   hideKey: string;
+
+  // Swarm
+  swarmOverview: string;
+  swarmAgents: string;
+  swarmNoAgents: string;
+  swarmHealth: string;
+  swarmConnected: string;
+  swarmDisconnected: string;
+  swarmReconnecting: string;
+  navSwarm: string;
+  last5min: string;
+  submitted: string;
+  completed: string;
+  failed: string;
+  queued: string;
+  load: string;
+  model: string;
+  latency: string;
+  memory: string;
+  clients: string;
+  redisLabel: string;
 }
 
 export const zh: Translations = {
@@ -600,4 +621,25 @@ export const zh: Translations = {
   // API Key Reveal
   revealKey: "查看密钥",
   hideKey: "隐藏密钥",
+
+  // Swarm
+  swarmOverview: "蜂群概览",
+  swarmAgents: "蜂群 Agent",
+  swarmNoAgents: "没有已注册的蜂群 Agent",
+  swarmHealth: "健康状态",
+  swarmConnected: "已连接",
+  swarmDisconnected: "已断开",
+  swarmReconnecting: "重新连接中...",
+  navSwarm: "蜂群",
+  last5min: "近 5 分钟",
+  submitted: "已提交",
+  completed: "已完成",
+  failed: "失败",
+  queued: "排队中",
+  load: "负载",
+  model: "模型",
+  latency: "延迟",
+  memory: "内存",
+  clients: "客户端数",
+  redisLabel: "Redis",
 };

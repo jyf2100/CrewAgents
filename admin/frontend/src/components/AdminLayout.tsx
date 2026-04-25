@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Outlet, Navigate, useLocation, Link } from "react-router-dom";
+import { Outlet, Navigate, useLocation, Link, NavLink } from "react-router-dom";
 import { useI18n } from "../hooks/useI18n";
 
 /* ── Inline icon components (no external deps) ── */
@@ -180,6 +180,56 @@ export function AdminLayout() {
             );
           })}
         </nav>
+
+        {/* Swarm section */}
+        <div className="px-2 mt-4">
+          <div className="px-3 py-2 text-xs uppercase text-text-secondary tracking-wider">
+            {t.navSwarm}
+          </div>
+          <NavLink
+            to="/swarm"
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              [
+                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors duration-150 relative",
+                isActive
+                  ? "text-text-primary font-medium"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface/50",
+              ].join(" ")
+            }
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && (
+                  <span
+                    className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent-pink"
+                    aria-hidden="true"
+                  />
+                )}
+                <svg
+                  viewBox="0 0 24 24"
+                  className="w-4 h-4 shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="5" r="2.5" />
+                  <circle cx="5" cy="14" r="2.5" />
+                  <circle cx="19" cy="14" r="2.5" />
+                  <circle cx="8" cy="20" r="2.5" />
+                  <circle cx="16" cy="20" r="2.5" />
+                  <line x1="12" y1="7.5" x2="5" y2="11.5" />
+                  <line x1="12" y1="7.5" x2="19" y2="11.5" />
+                  <line x1="5" y1="14" x2="8" y2="17.5" />
+                  <line x1="19" y1="14" x2="16" y2="17.5" />
+                  <line x1="8" y1="20" x2="16" y2="20" />
+                </svg>
+                <span>{t.navSwarm}</span>
+              </>
+            )}
+          </NavLink>
+        </div>
 
         {/* Bottom section */}
         <div className="px-3 pb-4 space-y-3 shrink-0">
