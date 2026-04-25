@@ -62,3 +62,11 @@ mini-swe-agent/
 .direnv/
 result
 website/static/api/skills-index.json
+
+# E2E test artifacts
+admin/frontend/playwright-report/
+admin/frontend/test-results/
+test-results/
+
+# Third-party repos
+OpenSandbox/
