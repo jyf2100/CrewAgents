@@ -34,6 +34,9 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && 
 # Copy backend source
 COPY backend/ ./
 
+# Copy swarm package (used by swarm_routes.py)
+COPY swarm/ /app/swarm/
+
 # Copy template files (admin/templates/ -> /app/templates/)
 COPY templates/ /app/templates/
 

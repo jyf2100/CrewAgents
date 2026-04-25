@@ -53,6 +53,7 @@ spec:
               mountPath: /etc/redis
         - name: redis-exporter
           image: oliver006/redis_exporter:latest
+          imagePullPolicy: Never
           env:
             - name: REDIS_ADDR
               value: "redis://localhost:6379"
