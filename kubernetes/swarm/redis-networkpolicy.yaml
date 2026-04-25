@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hermes-redis-netpol
+  namespace: hermes-agent
+spec:
+  podSelector:
+    matchLabels:
+      app: hermes-redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: hermes-agent
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 9121
