@@ -10,6 +10,7 @@ import os
 import re
 import secrets as _secrets
 import time
+import redis as _redis
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -37,6 +38,7 @@ from agent_manager import AgentManager
 from config_manager import ConfigManager
 from templates import TemplateGenerator
 from weixin import stream_weixin_qr, start_qr_session, end_qr_session, read_weixin_status, unbind_weixin
+from swarm_routes import router as swarm_router
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -53,6 +55,9 @@ logger = logging.getLogger("hermes-admin")
 # FastAPI app
 # ---------------------------------------------------------------------------
 app = FastAPI(title="Hermes Admin API", openapi_url=None, docs_url=None)
+
+# Include swarm router
+app.include_router(swarm_router, prefix="/admin/api")
 
 
 # ---------------------------------------------------------------------------
@@ -174,12 +179,24 @@ def _cleanup_expired_sse_tokens():
 
 @app.on_event("startup")
 async def _startup_cleanup():
-    """Schedule periodic SSE token cleanup."""
+    """Schedule periodic SSE token cleanup and init swarm Redis."""
     async def _sweep():
         while True:
             await asyncio.sleep(60)
             _cleanup_expired_sse_tokens()
     asyncio.create_task(_sweep())
+
+    # Swarm Redis init
+    redis_url = os.environ.get("SWARM_REDIS_URL", "")
+    if redis_url:
+        try:
+            r = _redis.from_url(redis_url, decode_responses=True, socket_connect_timeout=3)
+            r.ping()
+            app.state.swarm_redis = r
+        except Exception:
+            app.state.swarm_redis = None
+    else:
+        app.state.swarm_redis = None
 
 
 @app.on_event("startup")
