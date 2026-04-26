@@ -1527,7 +1527,7 @@ class SwarmQuota:
 
 ## 10. 分阶段实施计划
 
-### Phase 1: 基础设施（4 周）
+### Phase 1: 基础设施 ✅ 已完成（2026-04-26）
 - Redis 部署（单节点 + AOF + PVC）
 - Agent Registry + 心跳
 - 消息传输层（Streams + Pub/Sub 双层）
@@ -1535,26 +1535,55 @@ class SwarmQuota:
 - 连接管理（Per-Agent 拓扑）
 - Admin Panel Swarm 概览页 + Redis 健康卡片
 - 基本的单 Agent 路由
+- **提前实现**：Sync/Async 桥接（三线程架构 `tools/swarm_tool.py`）
+- **提前实现**：熔断器 + 优雅降级（`circuit_breaker.py` + `resilient_client.py`）
+- **提前实现**：SSE 一次性 Token 认证（`swarm_routes.py` + `swarm_models.py`）
+- **提前实现**：Zustand stores（`swarmRegistry` + `swarmEvents`）
+- **提前实现**：SSE EventSource 封装（`swarm-sse.ts`）
 
-**交付物**：Supervisor 能将用户请求可靠路由到最合适的单 Agent
+**交付物**：Agent 可注册到 Registry、发送任务到 Stream、Redis 故障自动降级。Admin Panel 显示 Agent 列表和 Redis 健康状态。
 
-### Phase 2: 通信与协作（4 周）
-- Sync/Async 桥接（三线程架构）
-- 跨 Agent 工具调用
-- 任务追踪 + 追踪可视化
-- 熔断器 + 优雅降级
-- 停滞消息扫描器
-- Admin Panel 任务监控页 + SSE 实时更新
-- 状态管理（Zustand stores）
+### Phase 2: 核心通信闭环（2 周）
 
-**交付物**：多 Agent 可协作完成复合任务，Redis 故障时自动降级
+> 目标：实现完整的"发送任务 → 消费执行 → 返回结果 → 实时展示"闭环。
+
+**后端 — Agent 端 Stream Consumer：**
+- Agent 进程内 daemon 线程（`swarm/consumer.py`），XREADGROUP 阻塞消费
+- 收到任务后调用 `AIAgent` 单次 LLM 对话执行（不启动完整对话循环）
+- 执行完成后 XADD 结果到发送方的 result stream + XACK 任务
+- Consumer 生命周期：Agent 启动时创建 Consumer Group + 启动线程，退出时优雅停止
+
+**后端 — SSE 实时事件桥接：**
+- `swarm_routes.py` 的 SSE 端点订阅 Redis Pub/Sub advisory 频道
+- 将 `swarm.advisory.task/result/online/offline` 事件实时转发给前端 SSE 客户端
+- 替换现有的 30s heartbeat-only 事件循环为 Pub/Sub 驱动的事件推送
+
+**前端 — 任务监控：**
+- `swarmTasks` Zustand store（任务列表 + 过滤器 + 分页）
+- `TaskMonitorPage`：全宽表格 + 过滤栏（status/priority/agent）+ SSE 实时更新
+- `TaskDetailPage`：任务元数据 + 结果面板 + 参与者信息
+
+**不包含**（移至 Phase 2b 或更后）：
+- 任务追踪 Trace Span 存储和查询 API
+- 追踪泳道可视化（TaskDetailPage 中的 trace timeline）
+- 停滞消息扫描器（stalled_scanner.py）
+- 跨 Agent HTTP 工具调用
+
+**交付物**：Supervisor 发送任务 → Worker Agent 消费执行 → 结果返回 → Admin Panel 实时展示。多 Agent 可协作完成单步任务。
+
+### Phase 2b: 可观测性（1-2 周）— 可选
+- 任务追踪（TraceSpan 存储 + 查询 API）
+- 追踪泳道可视化（TaskDetailPage 扩展）
+- 停滞消息扫描器（stalled_scanner.py）
+- Admin `/swarm/metrics` 扩展队列深度和停滞消息指标
+
+**交付物**：完整任务可观测性，停滞任务自动回收
 
 ### Phase 3: 知识与编排（4 周）
 - 共享记忆层（Redis → Qdrant）
 - Crew 管理 UI（含 DAG 编辑器）
 - 工作流定义（sequential/parallel/DAG）
 - 知识库管理 UI
-- SSE 一次性 Token 认证
 
 **交付物**：可视化编排 Agent 组合执行复杂工作流
 
