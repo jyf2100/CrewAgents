@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { SwarmSSE } from "../lib/swarm-sse";
 import { adminFetch } from "../lib/admin-api";
 import { useSwarmRegistry } from "./swarmRegistry";
+import { useSwarmTasks } from "./swarmTasks";
 
 interface SwarmEventsState {
   connected: boolean;
@@ -29,6 +30,7 @@ export const useSwarmEvents = create<SwarmEventsState>((set, get) => ({
       },
       onEvent: (type, data) => {
         useSwarmRegistry.getState().handleEvent(type, data);
+        useSwarmTasks.getState().handleEvent(type, data);
       },
       onConnectionChange: (connected) => set({ connected }),
     });
