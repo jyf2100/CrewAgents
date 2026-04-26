@@ -9,6 +9,7 @@ from .exactly_once import ExactlyOnceGuard
 from .messaging import SwarmMessaging
 from .client import SwarmClient
 from .resilient_client import ResilientSwarmClient, SwarmMode
+from .consumer import SwarmConsumer
 
 __all__ = [
     "ConnectionConfig",
@@ -25,4 +26,5 @@ __all__ = [
     "SwarmClient",
     "ResilientSwarmClient",
     "SwarmMode",
+    "SwarmConsumer",
 ]
