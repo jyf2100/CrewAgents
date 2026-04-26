@@ -46,6 +46,18 @@ class SwarmMetricsResponse(BaseModel):
     tasks_failed_last_5m: int = 0
 
 
+class SwarmTaskResponse(BaseModel):
+    task_id: str
+    task_type: str
+    goal: str
+    status: str  # "completed" | "failed" | "pending" | "running"
+    sender_id: int
+    assigned_agent_id: int | None = None
+    duration_ms: int | None = None
+    error: str = ""
+    timestamp: float
+
+
 class SSETokenResponse(BaseModel):
     token: str
     expires_in: int

@@ -12,6 +12,7 @@ from swarm_models import (
     SwarmAgentProfile,
     SwarmMetricsResponse,
     RedisHealthResponse,
+    SwarmTaskResponse,
     SSETokenResponse,
 )
 from swarm.health import check_redis_health
@@ -138,6 +139,41 @@ async def get_swarm_metrics(request: Request):
             version=health.version,
         ),
     )
+
+
+@router.get("/tasks", response_model=list[SwarmTaskResponse], dependencies=[_auth])
+async def get_swarm_tasks(request: Request):
+    redis = _get_redis(request)
+    if redis is None:
+        return []
+    now = time.time()
+    cutoff = now - 300  # last 5 minutes
+    raw = redis.zrangebyscore("hermes:swarm:tasks", cutoff, now)
+    tasks = []
+    for entry in raw:
+        try:
+            tasks.append(SwarmTaskResponse(**json.loads(entry)))
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return list(reversed(tasks))
+
+
+@router.get("/tasks/{task_id}", response_model=SwarmTaskResponse | None, dependencies=[_auth])
+async def get_swarm_task(request: Request, task_id: str):
+    redis = _get_redis(request)
+    if redis is None:
+        return None
+    # Scan sorted set for matching task_id
+    now = time.time()
+    raw = redis.zrangebyscore("hermes:swarm:tasks", now - 300, now)
+    for entry in raw:
+        try:
+            data = json.loads(entry)
+            if data.get("task_id") == task_id:
+                return SwarmTaskResponse(**data)
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return None
 
 
 @router.post("/events/token", response_model=SSETokenResponse, dependencies=[_auth])
