@@ -38,3 +38,8 @@ spec:
     - Ingress
   ingress:
     - from: []  # 允许任意来源（API Gateway 在集群外）
+      ports:
+        - protocol: TCP
+          port: 8642
+        - protocol: TCP
+          port: 9119

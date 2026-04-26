@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-webui
+  namespace: hermes-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes-webui
+  template:
+    metadata:
+      labels:
+        app: hermes-webui
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: webui
+          image: ghcr.io/open-webui/open-webui:main
+          ports:
+            - containerPort: 48080
+          env:
+            - name: OPENAI_API_BASE_URL
+              value: "http://hermes-gateway:8642/v1"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-db-secret
+                  key: api_key
+                  optional: true
+            - name: WEBUI_AUTH
+              value: "false"
+            - name: PORT
+              value: "48080"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi

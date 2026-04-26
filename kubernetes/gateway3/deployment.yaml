@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-gateway-3
+  namespace: hermes-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes-gateway-3
+  template:
+    metadata:
+      labels:
+        app: hermes-gateway-3
+    spec:
+      serviceAccountName: hermes-gateway
+      containers:
+        - name: gateway
+          image: nousresearch/hermes-agent:latest
+          imagePullPolicy: IfNotPresent
+          args: ["gateway"]
+          ports:
+            - containerPort: 8642
+          env:
+            - name: API_SERVER_ENABLED
+              value: "true"
+            - name: API_SERVER_HOST
+              value: "0.0.0.0"
+            - name: API_SERVER_PORT
+              value: "8642"
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-db-secret
+                  key: api_key_3
+            - name: GATEWAY_ALLOW_ALL_USERS
+              value: "true"
+            - name: K8S_NAMESPACE
+              value: "hermes-agent"
+            - name: SANDBOX_POOL_NAME
+              value: "hermes-sandbox-pool"
+            - name: SANDBOX_TTL_MINUTES
+              value: "30"
+            - name: SWARM_REDIS_URL
+              value: "redis://hermes-redis:6379/0"
+            - name: K8S_DEPLOYMENT
+              value: "hermes-gateway-3"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8642
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8642
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          volumeMounts:
+            - name: hermes-data
+              mountPath: /opt/data
+      volumes:
+        - name: hermes-data
+          hostPath:
+            path: /data/hermes/agent3
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-gateway-3
+  namespace: hermes-agent
+spec:
+  type: ClusterIP
+  ports:
+    - name: api
+      port: 8642
+      targetPort: 8642
+  selector:
+    app: hermes-gateway-3

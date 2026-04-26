@@ -15,9 +15,8 @@ spec:
         runAsUser: 1000
         fsGroup: 1000
       initContainers:
-        # init container: 轮询 /shared/registry_done 文件等待主容器就绪
         - name: registry-init
-          image: nousresearch/hermes-agent:v0.8.0
+          image: nousresearch/hermes-agent:latest
           imagePullPolicy: IfNotPresent
           command: ["python3", "/opt/hermes/scripts/registry-init.py"]
           env:
@@ -36,26 +35,13 @@ spec:
               mountPath: /opt/data
             - name: shared
               mountPath: /shared
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 100m
-              memory: 128Mi
       containers:
-        # 主容器：Hermes Agent（Gateway 模式）
         - name: sandbox
-          image: nousresearch/hermes-agent:v0.8.0
+          image: nousresearch/hermes-agent:latest
           imagePullPolicy: IfNotPresent
           command: ["hermes", "gateway"]
           ports:
             - containerPort: 8642
-          securityContext:
-            readOnlyRootFilesystem: false
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
           env:
             - name: API_SERVER_ENABLED
               value: "true"
@@ -63,6 +49,8 @@ spec:
               value: "0.0.0.0"
             - name: API_SERVER_PORT
               value: "8642"
+            - name: GATEWAY_ALLOW_ALL_USERS
+              value: "true"
             - name: POD_IP
               valueFrom:
                 fieldRef:
@@ -76,7 +64,6 @@ spec:
                   - /bin/sh
                   - -c
                   - |
-                    # 等待 Hermes Gateway 就绪后写入标记文件
                     for i in $(seq 1 30); do
                       if curl -sf http://localhost:8642/health > /dev/null 2>&1; then
                         echo "ready" > /shared/registry_done
@@ -95,28 +82,27 @@ spec:
                     sleep 2
           resources:
             requests:
-              cpu: 500m
+              cpu: 250m
               memory: 512Mi
             limits:
               cpu: 1000m
               memory: 1Gi
+          securityContext:
+            readOnlyRootFilesystem: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: sandbox-data
               mountPath: /opt/data
             - name: shared
               mountPath: /shared
-        # Sidecar：Registry Agent（处理注销请求）
         - name: registry-agent
-          image: nousresearch/hermes-agent:v0.8.0
+          image: nousresearch/hermes-agent:latest
           imagePullPolicy: IfNotPresent
           command: ["python3", "/opt/hermes/scripts/registry-agent.py"]
           ports:
             - containerPort: 8080
-          securityContext:
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
           env:
             - name: POD_NAME
               valueFrom:
@@ -131,13 +117,18 @@ spec:
             limits:
               cpu: 100m
               memory: 128Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
       volumes:
         - name: sandbox-data
           emptyDir: {}
         - name: shared
           emptyDir: {}
   capacitySpec:
-    bufferMin: 5
-    bufferMax: 15
-    poolMin: 5
-    poolMax: 30
+    poolMin: 2
+    poolMax: 50
+    bufferMin: 2
+    bufferMax: 10

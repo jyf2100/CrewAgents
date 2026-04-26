@@ -1,0 +1,50 @@
+# =============================================================================
+# Hermes Agent Configuration
+# =============================================================================
+
+model:
+  # Default model (override with --model flag)
+  default: "anthropic/claude-sonnet-4-20250514"
+
+  # Provider selection:
+  #   "auto"         - Auto-detect from credentials (default)
+  #   "openrouter"   - OpenRouter (requires OPENROUTER_API_KEY)
+  #   "anthropic"    - Direct Anthropic API (requires ANTHROPIC_API_KEY)
+  #   "openai"       - Direct OpenAI API (requires OPENAI_API_KEY)
+  #   "gemini"       - Google AI Studio (requires GEMINI_API_KEY)
+  #   "zhipuai"      - ZhipuAI GLM (requires GLM_API_KEY)
+  #   "custom"       - Any OpenAI-compatible endpoint (set base_url)
+  provider: "auto"
+
+  # API base URL (default: OpenRouter)
+  base_url: "https://openrouter.ai/api/v1"
+
+  # Uncomment to override context window size
+  # context_length: 131072
+
+  # Uncomment to cap output tokens per response
+  # max_tokens: 8192
+
+terminal:
+  enabled: true
+  timeout: 60
+
+browser:
+  enabled: false
+
+streaming:
+  enabled: true
+
+memory:
+  enabled: true
+
+session_reset:
+  enabled: false
+
+# swarm:
+#   enabled: false
+#   capabilities: []
+#   max_concurrent_tasks: 3
+#   message_bus: "redis://hermes-redis:6379/0"
+#   heartbeat_interval: 30
+#   registry_enabled: true

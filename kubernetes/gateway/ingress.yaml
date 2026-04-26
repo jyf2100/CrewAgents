@@ -1,21 +1,34 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: hermes-gateway-ingress
+  name: hermes-ingress
   namespace: hermes-agent
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
-  tls:
-    - hosts:
-        - hermes.internal.example.com
-      secretName: hermes-tls-secret
+  ingressClassName: nginx
   rules:
-    - host: hermes.internal.example.com
-      http:
+    - http:
         paths:
-          - path: /
+          - path: /agent1(/|$)(.*)
             pathType: Prefix
             backend:
               service:
                 name: hermes-gateway
+                port:
+                  number: 8642
+          - path: /agent2(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes-gateway-2
+                port:
+                  number: 8642
+          - path: /agent3(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes-gateway-3
                 port:
                   number: 8642

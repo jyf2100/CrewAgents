@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hermes-redis-config
+  namespace: hermes-agent
+data:
+  redis.conf: |
+    bind 0.0.0.0
+    port 6379
+    protected-mode no
+    timeout 300
+    tcp-keepalive 60
+
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+
+    save 900 1
+    save 300 10
+    save 60 10000
+    rdbcompression yes
+    dir /data
+
+    maxmemory 384mb
+    maxmemory-policy allkeys-lru
+
+    maxclients 200
+    slowlog-log-slower-than 10000
+    slowlog-max-len 128

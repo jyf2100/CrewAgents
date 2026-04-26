@@ -51,6 +51,9 @@ ignored/
 .worktrees/
 environments/benchmarks/evals/
 
+# Web UI build output
+hermes_cli/web_dist/
+
 # Release script temp files
 .release_notes.md
 mini-swe-agent/
@@ -58,3 +61,21 @@ mini-swe-agent/
 # Nix
 .direnv/
 result
+website/static/api/skills-index.json
+
+# E2E test artifacts
+admin/frontend/playwright-report/
+admin/frontend/test-results/
+test-results/
+
+# Third-party repos
+OpenSandbox/
+
+# Claude Code
+.claude/
+
+# Test coverage
+.coverage
+
+# Admin swarm copy (root swarm/ is the source)
+admin/swarm/

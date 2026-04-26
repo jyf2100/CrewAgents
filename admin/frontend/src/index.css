@@ -1,0 +1,207 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Surfaces ── */
+  --color-background: #0d0221;
+  --color-surface: #1a0a3e;
+  --color-surface-elevated: #2d1b69;
+  --color-sidebar-bg: #120838;
+  --color-terminal: #080815;
+
+  /* ── Text ── */
+  --color-text-primary: #d1f7ff;
+  --color-text-secondary: #a8a8c0;
+
+  /* ── Accents ── */
+  --color-accent-pink: #ff2a6d;
+  --color-accent-cyan: #05d9e8;
+  --color-accent-glow: #7b2d8e;
+
+  /* ── Progress bar track ── */
+  --color-bar-track: rgba(123, 45, 142, 0.2);
+
+  /* ── Semantic ── */
+  --color-success: #00ff41;
+  --color-warning: #f5a623;
+  --color-destructive: #ff2a6d;
+
+  /* ── Borders ── */
+  --color-border: rgba(123, 45, 142, 0.3);
+  --color-border-subtle: rgba(123, 45, 142, 0.15);
+  --color-border-cyan: rgba(5, 217, 232, 0.3);
+
+  /* ── Font families ── */
+  --font-display: "Orbitron", sans-serif;
+  --font-body: "Exo 2", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* ── Motion ── */
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-stagger: 80ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Base ── */
+body {
+  font-family: var(--font-body);
+  color: var(--color-text-primary);
+  background-color: var(--color-background);
+  background-image:
+    radial-gradient(ellipse at 20% 50%, rgba(123, 45, 142, 0.15), transparent 70%),
+    radial-gradient(ellipse at 80% 20%, rgba(5, 217, 232, 0.08), transparent 50%),
+    radial-gradient(ellipse at 50% 80%, rgba(255, 42, 109, 0.06), transparent 60%);
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(123, 45, 142, 0.4);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(5, 217, 232, 0.4);
+}
+
+/* ── Keyframes ── */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes stagger-item {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes toast-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes modal-enter {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes check-pop {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Animation utility classes ── */
+.animate-page-enter {
+  animation: page-enter 400ms var(--ease-out-expo) both;
+}
+
+.animate-stagger {
+  animation: stagger-item 300ms var(--ease-out-expo) both;
+}
+
+.animate-status-pulse {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+.animate-modal-enter {
+  animation: modal-enter 200ms var(--ease-out-expo) both;
+}
+
+.animate-check-pop {
+  animation: check-pop 300ms var(--ease-out-expo) both;
+}
+
+.animate-toast-in {
+  animation: toast-in 300ms var(--ease-out-expo) both;
+}
+
+.animate-toast-out {
+  animation: toast-out 200ms ease-in both;
+}
+
+/* ── Glass effect ── */
+.glass {
+  background: rgba(26, 10, 62, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-heavy {
+  background: rgba(26, 10, 62, 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* ── Glow effects (used sparingly) ── */
+.glow-pink {
+  box-shadow: 0 0 20px rgba(255, 42, 109, 0.3);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 12px rgba(5, 217, 232, 0.3);
+}
+
+.glow-pink-text {
+  text-shadow: 0 0 20px rgba(255, 42, 109, 0.4);
+}
+
+/* ── prefers-reduced-motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

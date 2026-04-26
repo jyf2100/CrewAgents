@@ -10,12 +10,12 @@ metadata:
   name: hermes-gateway
   namespace: hermes-agent
 rules:
-  - apiGroups: [""]
-    resources: ["endpoints"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["sandbox.opensandbox.io"]
-    resources: ["batchsandboxes", "batchsandboxes/status"]
-    verbs: ["get", "list", "watch", "create", "delete"]
+    resources: ["batchsandboxes"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  - apiGroups: ["sandbox.opensandbox.io"]
+    resources: ["batchsandboxes/status"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["sandbox.opensandbox.io"]
     resources: ["pools"]
     verbs: ["get", "list"]

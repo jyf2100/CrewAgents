@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-admin
+  namespace: hermes-agent
+  labels:
+    app: hermes-admin
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 48082
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: hermes-admin

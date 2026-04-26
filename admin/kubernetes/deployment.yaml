@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-admin
+  namespace: hermes-agent
+  labels:
+    app: hermes-admin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes-admin
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: hermes-admin
+      annotations:
+        kubectl.kubernetes.io/restartedAt: ""
+    spec:
+      serviceAccountName: hermes-admin
+      containers:
+        - name: admin
+          image: hermes-admin:latest
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 48082
+              protocol: TCP
+          env:
+            - name: K8S_NAMESPACE
+              value: "hermes-agent"
+            - name: ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-admin-secret
+                  key: admin_key
+            - name: HERMES_DATA_ROOT
+              value: "/data/hermes"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: hermes-data-root
+              mountPath: /data/hermes
+              readOnly: false
+      volumes:
+        - name: hermes-data-root
+          hostPath:
+            path: /data/hermes
+            type: DirectoryOrCreate

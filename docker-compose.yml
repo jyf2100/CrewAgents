@@ -2,13 +2,15 @@ services:
   hermes:
     image: nousresearch/hermes-agent:latest
     container_name: hermes-agent
-    command: gateway
+    entrypoint: ["/opt/hermes/docker/entrypoint-merged.sh"]
     ports:
       - "8642:8642"
+      - "9119:9119"
     volumes:
       - hermes-data:/opt/data
       - ./.env:/opt/data/.env
       - ./docker/config.yaml:/opt/data/config.yaml
+      - ./docker/entrypoint-merged.sh:/opt/hermes/docker/entrypoint-merged.sh
     env_file:
       - path: .env
         required: false
@@ -47,7 +49,7 @@ services:
   setup:
     image: nousresearch/hermes-agent:latest
     container_name: hermes-setup
-    entrypoint: ["python3", "/opt/hermes/docker/setup_server.py"]
+    entrypoint: ["bash", "-c", "uv pip install --system --break-system-packages aiohttp -i https://pypi.tuna.tsinghua.edu.cn/simple && python3 /opt/hermes/docker/setup_server.py"]
     ports:
       - "3080:3080"
       - "8643:8643"
