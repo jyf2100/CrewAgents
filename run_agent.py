@@ -1791,6 +1791,17 @@ class AIAgent:
             except Exception:
                 pass
 
+            # Start the swarm task consumer daemon thread
+            def _swarm_execute(goal: str, input_data: str) -> str:
+                """Execute a swarm task via a single LLM call."""
+                try:
+                    return self.chat(goal)
+                except Exception as exc:
+                    logger.warning("swarm task execution error: %s", exc)
+                    raise
+
+            self._swarm_client.start_consumer(_swarm_execute)
+
             if self.verbose_logging:
                 from urllib.parse import urlparse as _urlparse
                 _parsed = _urlparse(redis_url)
