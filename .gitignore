@@ -70,3 +70,12 @@ test-results/
 
 # Third-party repos
 OpenSandbox/
+
+# Claude Code
+.claude/
+
+# Test coverage
+.coverage
+
+# Admin swarm copy (root swarm/ is the source)
+admin/swarm/
