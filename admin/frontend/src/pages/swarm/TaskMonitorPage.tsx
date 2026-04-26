@@ -7,6 +7,14 @@ import { useSwarmEvents } from "../../stores/swarmEvents";
 import { useI18n } from "../../hooks/useI18n";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { ErrorDisplay } from "../../components/ErrorDisplay";
+import type { Translations } from "../../i18n/zh";
+import {
+  statusBadgeClasses,
+  statusDotPulse,
+  formatDuration,
+  formatTimestamp,
+  truncateId,
+} from "../../lib/swarm-task-helpers";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -15,45 +23,6 @@ import { ErrorDisplay } from "../../components/ErrorDisplay";
 type FilterKey = "all" | TaskStatus;
 
 const FILTERS: FilterKey[] = ["all", "completed", "failed", "running", "pending"];
-
-function statusBadgeClasses(status: TaskStatus): string {
-  switch (status) {
-    case "completed":
-      return "bg-success/10 text-success border-success/20";
-    case "failed":
-      return "bg-accent-pink/10 text-accent-pink border-accent-pink/20";
-    case "running":
-      return "bg-accent-cyan/10 text-accent-cyan border-accent-cyan/20";
-    case "pending":
-      return "bg-warning/10 text-warning border-warning/20";
-    default:
-      return "bg-text-secondary/10 text-text-secondary border-text-secondary/20";
-  }
-}
-
-function statusDotPulse(status: TaskStatus): string {
-  return status === "running" ? "animate-status-pulse" : "";
-}
-
-function formatDuration(ms: number | null): string {
-  if (ms === null) return "-";
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  return `${minutes}m ${remaining}s`;
-}
-
-function formatTimestamp(epoch: number): string {
-  const date = new Date(epoch * 1000);
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function truncateId(id: string): string {
-  if (id.length <= 12) return id;
-  return `${id.slice(0, 8)}...`;
-}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -90,6 +59,9 @@ export function TaskMonitorPage() {
   // SSE connection
   useEffect(() => {
     connect("/admin/api");
+    return () => {
+      useSwarmEvents.getState().disconnect();
+    };
   }, [connect]);
 
   // 15s polling
@@ -245,8 +217,7 @@ interface TaskRowProps {
   agentName: string;
   delay: number;
   onClick: () => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  t: any;
+  t: Translations;
 }
 
 function TaskRow({ task, agentName, delay, onClick, t }: TaskRowProps) {

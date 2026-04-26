@@ -3,6 +3,25 @@ import { adminFetch } from "../lib/admin-api";
 
 export type TaskStatus = "completed" | "failed" | "pending" | "running";
 
+const VALID_STATUSES = new Set<string>(["completed", "failed", "pending", "running"]);
+
+function extractEventFields(data: unknown) {
+  if (typeof data !== "object" || data === null) {
+    return null;
+  }
+  const d = data as Record<string, unknown>;
+  return {
+    task_id: typeof d.task_id === "string" ? d.task_id : "",
+    status:
+      typeof d.status === "string" && VALID_STATUSES.has(d.status)
+        ? (d.status as TaskStatus)
+        : undefined,
+    task_type: typeof d.task_type === "string" ? d.task_type : "",
+    duration_ms: typeof d.duration_ms === "number" ? d.duration_ms : undefined,
+    agent_id: typeof d.agent_id === "number" ? d.agent_id : undefined,
+  };
+}
+
 export interface SwarmTask {
   task_id: string;
   task_type: string;
@@ -39,50 +58,54 @@ export const useSwarmTasks = create<SwarmTasksState>((set) => ({
   },
 
   handleEvent: (type, data) => {
-    const d = data as Record<string, unknown>;
     if (
-      type === "task_created" ||
-      type === "task_started" ||
-      type === "task_completed" ||
-      type === "task_failed"
+      type !== "task_created" &&
+      type !== "task_started" &&
+      type !== "task_completed" &&
+      type !== "task_failed"
     ) {
-      const taskId = d.task_id as string;
-      set((state) => {
-        const existing = state.tasks.findIndex((t) => t.task_id === taskId);
-        if (existing >= 0) {
-          const updated = [...state.tasks];
-          updated[existing] = {
-            ...updated[existing],
-            status:
-              (d.status as TaskStatus) ??
-              (type.replace("task_", "") as TaskStatus),
-            duration_ms:
-              (d.duration_ms as number) ?? updated[existing].duration_ms,
-            assigned_agent_id:
-              (d.agent_id as number) ?? updated[existing].assigned_agent_id,
-          };
-          return { tasks: updated };
-        }
-        return {
-          tasks: [
-            {
-              task_id: taskId,
-              task_type: (d.task_type as string) ?? "",
-              goal: "",
-              status:
-                type === "task_created"
-                  ? "pending"
-                  : ((d.status as TaskStatus) ?? "running"),
-              sender_id: 0,
-              assigned_agent_id: (d.agent_id as number) ?? null,
-              duration_ms: null,
-              error: "",
-              timestamp: Date.now() / 1000,
-            },
-            ...state.tasks,
-          ],
-        };
-      });
+      return;
     }
+
+    const fields = extractEventFields(data);
+    if (!fields || !fields.task_id) return;
+
+    const taskId = fields.task_id;
+    set((state) => {
+      const existing = state.tasks.findIndex((t) => t.task_id === taskId);
+      if (existing >= 0) {
+        const updated = [...state.tasks];
+        updated[existing] = {
+          ...updated[existing],
+          status:
+            fields.status ??
+            (type.replace("task_", "") as TaskStatus),
+          duration_ms:
+            fields.duration_ms ?? updated[existing].duration_ms,
+          assigned_agent_id:
+            fields.agent_id ?? updated[existing].assigned_agent_id,
+        };
+        return { tasks: updated };
+      }
+      return {
+        tasks: [
+          {
+            task_id: taskId,
+            task_type: fields.task_type,
+            goal: "",
+            status:
+              type === "task_created"
+                ? "pending"
+                : (fields.status ?? "running"),
+            sender_id: 0,
+            assigned_agent_id: fields.agent_id ?? null,
+            duration_ms: null,
+            error: "",
+            timestamp: Date.now() / 1000,
+          },
+          ...state.tasks,
+        ],
+      };
+    });
   },
 }));

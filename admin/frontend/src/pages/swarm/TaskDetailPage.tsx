@@ -1,71 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import type { SwarmTask, TaskStatus } from "../../stores/swarmTasks";
+import type { SwarmTask } from "../../stores/swarmTasks";
 import { useSwarmRegistry } from "../../stores/swarmRegistry";
 import { adminFetch } from "../../lib/admin-api";
 import { useI18n } from "../../hooks/useI18n";
 import { LoadingSpinner } from "../../components/LoadingSpinner";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function statusBadgeClasses(status: TaskStatus): string {
-  switch (status) {
-    case "completed":
-      return "bg-success/10 text-success border-success/20";
-    case "failed":
-      return "bg-accent-pink/10 text-accent-pink border-accent-pink/20";
-    case "running":
-      return "bg-accent-cyan/10 text-accent-cyan border-accent-cyan/20";
-    case "pending":
-      return "bg-warning/10 text-warning border-warning/20";
-    default:
-      return "bg-text-secondary/10 text-text-secondary border-text-secondary/20";
-  }
-}
-
-function statusDotColor(status: TaskStatus): string {
-  switch (status) {
-    case "completed":
-      return "bg-success";
-    case "failed":
-      return "bg-accent-pink";
-    case "running":
-      return "bg-accent-cyan";
-    case "pending":
-      return "bg-warning";
-    default:
-      return "bg-text-secondary";
-  }
-}
-
-function formatDuration(ms: number | null): string {
-  if (ms === null) return "-";
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  return `${minutes}m ${remaining}s`;
-}
-
-function formatTimestamp(epoch: number): string {
-  const date = new Date(epoch * 1000);
-  return date.toLocaleString([], {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function truncateId(id: string): string {
-  if (id.length <= 16) return id;
-  return `${id.slice(0, 12)}...${id.slice(-4)}`;
-}
+import {
+  statusBadgeClasses,
+  statusDotColor,
+  statusDotPulse,
+  formatDuration,
+  formatTimestamp,
+  truncateId,
+} from "../../lib/swarm-task-helpers";
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -181,7 +128,7 @@ export function TaskDetailPage() {
 
   const badgeClasses = statusBadgeClasses(task.status);
   const dotColor = statusDotColor(task.status);
-  const pulseClass = task.status === "running" ? "animate-status-pulse" : "";
+  const pulseClass = statusDotPulse(task.status);
 
   return (
     <div>
@@ -271,7 +218,7 @@ export function TaskDetailPage() {
           <div>
             <p className="text-xs text-text-secondary mb-1">{t.taskTime}</p>
             <p className="text-sm font-[family-name:var(--font-mono)] text-text-primary">
-              {formatTimestamp(task.timestamp)}
+              {formatTimestamp(task.timestamp, true)}
             </p>
           </div>
         </div>
