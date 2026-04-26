@@ -61,7 +61,14 @@ class SwarmConsumer:
         """Main loop — polls for messages until :meth:`stop` is called."""
         self._ensure_group()
         while not self._stop_event.is_set():
-            self._poll_once()
+            try:
+                self._poll_once()
+            except Exception as exc:
+                logger.warning(
+                    "Consumer poll error (agent %d), retrying in 2s: %s",
+                    self._agent_id, exc,
+                )
+                self._stop_event.wait(2.0)
 
     def stop(self) -> None:
         """Signal the consumer to exit its run loop."""
@@ -94,86 +101,93 @@ class SwarmConsumer:
         goal = fields.get("goal", "")
         input_data = fields.get("input_data", "")
 
-        # ── Cancellation check ────────────────────────────────────────
-        cancel_key = f"hermes:swarm:cancel:{task_id}"
-        if self._redis.exists(cancel_key):
-            logger.info("Task %s cancelled, skipping.", task_id)
-            self._redis.xack(self._stream, self._group, msg_id)
-            return
-
-        # ── Advisory: task started ────────────────────────────────────
-        self._redis.publish(
-            "swarm.advisory.task",
-            json.dumps(
-                {
-                    "event": "task_started",
-                    "task_id": task_id,
-                    "agent_id": self._agent_id,
-                    "task_type": task_type,
-                }
-            ),
-        )
-
-        # ── Execute ───────────────────────────────────────────────────
-        start = time.monotonic()
-        error: str | None = None
-        output: str = ""
-        status = "completed"
         try:
-            output = self._execute_fn(goal, input_data)
-        except Exception as exc:
-            status = "failed"
-            error = str(exc)
-            logger.exception("Task %s execution failed.", task_id)
-        duration_ms = int((time.monotonic() - start) * 1000)
+            # ── Cancellation check ────────────────────────────────
+            cancel_key = f"hermes:swarm:cancel:{task_id}"
+            if self._redis.exists(cancel_key):
+                logger.info("Task %s cancelled, skipping.", task_id)
+                return
 
-        # ── Write result ──────────────────────────────────────────────
-        result_key = f"hermes:swarm:result:{task_id}"
-        now = time.time()
-        result_payload = {
-            "task_id": task_id,
-            "agent_id": self._agent_id,
-            "status": status,
-            "output": output,
-            "error": error or "",
-            "duration_ms": duration_ms,
-            "timestamp": now,
-        }
-        self._redis.rpush(result_key, json.dumps(result_payload))
-        self._redis.expire(result_key, 300)
+            # ── Advisory: task started ────────────────────────────
+            self._redis.publish(
+                "swarm.advisory.task",
+                json.dumps(
+                    {
+                        "event": "task_started",
+                        "task_id": task_id,
+                        "agent_id": self._agent_id,
+                        "task_type": task_type,
+                    }
+                ),
+            )
 
-        # ── Advisory: task completed/failed ───────────────────────────
-        self._redis.publish(
-            "swarm.advisory.result",
-            json.dumps(
-                {
-                    "event": "task_completed" if status == "completed" else "task_failed",
-                    "task_id": task_id,
-                    "agent_id": self._agent_id,
-                    "status": status,
-                    "duration_ms": duration_ms,
-                }
-            ),
-        )
+            # ── Execute ───────────────────────────────────────────
+            start = time.monotonic()
+            error: str | None = None
+            output: str = ""
+            status = "completed"
+            try:
+                output = self._execute_fn(goal, input_data)
+            except Exception as exc:
+                status = "failed"
+                error = str(exc)
+                logger.exception("Task %s execution failed.", task_id)
+            duration_ms = int((time.monotonic() - start) * 1000)
 
-        # ── Store task metadata (sorted set, score=timestamp) ─────────
-        tasks_key = "hermes:swarm:tasks"
-        sender_id = fields.get("sender_id", "0")
-        task_meta = {
-            "task_id": task_id,
-            "task_type": task_type,
-            "goal": goal[:200],
-            "status": status,
-            "sender_id": int(sender_id) if sender_id.isdigit() else 0,
-            "assigned_agent_id": self._agent_id,
-            "duration_ms": duration_ms,
-            "error": (error or "")[:500],
-            "timestamp": now,
-        }
-        self._redis.zadd(tasks_key, {json.dumps(task_meta): now})
-        # Prune entries older than 5 minutes
-        cutoff = now - _TASK_TTL_SECONDS
-        self._redis.zremrangebyscore(tasks_key, "-inf", cutoff)
+            # ── Write result ──────────────────────────────────────
+            result_key = f"hermes:swarm:result:{task_id}"
+            now_ms = time.time() * 1000
+            now = now_ms / 1000
+            result_payload = {
+                "task_id": task_id,
+                "agent_id": self._agent_id,
+                "status": status,
+                "output": output,
+                "error": error or "",
+                "duration_ms": duration_ms,
+                "timestamp": now,
+            }
+            self._redis.rpush(result_key, json.dumps(result_payload))
+            self._redis.expire(result_key, 300)
 
-        # ── Ack ───────────────────────────────────────────────────────
-        self._redis.xack(self._stream, self._group, msg_id)
+            # ── Advisory: task completed/failed ───────────────────
+            self._redis.publish(
+                "swarm.advisory.result",
+                json.dumps(
+                    {
+                        "event": "task_completed" if status == "completed" else "task_failed",
+                        "task_id": task_id,
+                        "agent_id": self._agent_id,
+                        "status": status,
+                        "duration_ms": duration_ms,
+                    }
+                ),
+            )
+
+            # ── Store task metadata (sorted set, score=ms timestamp) ─
+            tasks_key = "hermes:swarm:tasks"
+            sender_id = fields.get("sender_id", "0")
+            task_meta = {
+                "task_id": task_id,
+                "task_type": task_type,
+                "goal": goal[:200],
+                "status": status,
+                "sender_id": int(sender_id) if sender_id.isdigit() else 0,
+                "assigned_agent_id": self._agent_id,
+                "duration_ms": duration_ms,
+                "error": (error or "")[:500],
+                "timestamp": now,
+            }
+            self._redis.zadd(tasks_key, {json.dumps(task_meta): now_ms})
+            # Prune entries older than 5 minutes
+            cutoff_ms = (now - _TASK_TTL_SECONDS) * 1000
+            self._redis.zremrangebyscore(tasks_key, "-inf", cutoff_ms)
+
+        except Exception:
+            logger.exception("Error processing task %s, ACKing to avoid re-delivery.", task_id)
+        finally:
+            # Always ACK so the message is not re-delivered on errors
+            try:
+                self._redis.xack(self._stream, self._group, msg_id)
+            except Exception:
+                logger.exception("Failed to ACK message %s", msg_id)

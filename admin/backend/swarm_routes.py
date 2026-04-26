@@ -6,6 +6,7 @@ import json
 import time
 import secrets
 import asyncio
+import concurrent.futures
 
 from swarm_models import (
     SwarmCapabilityResponse,
@@ -146,9 +147,9 @@ async def get_swarm_tasks(request: Request):
     redis = _get_redis(request)
     if redis is None:
         return []
-    now = time.time()
-    cutoff = now - 300  # last 5 minutes
-    raw = redis.zrangebyscore("hermes:swarm:tasks", cutoff, now)
+    now_ms = time.time() * 1000
+    cutoff_ms = now_ms - 300_000  # last 5 minutes
+    raw = redis.zrangebyscore("hermes:swarm:tasks", cutoff_ms, now_ms)
     tasks = []
     for entry in raw:
         try:
@@ -164,8 +165,8 @@ async def get_swarm_task(request: Request, task_id: str):
     if redis is None:
         return None
     # Scan sorted set for matching task_id
-    now = time.time()
-    raw = redis.zrangebyscore("hermes:swarm:tasks", now - 300, now)
+    now_ms = time.time() * 1000
+    raw = redis.zrangebyscore("hermes:swarm:tasks", now_ms - 300_000, now_ms)
     for entry in raw:
         try:
             data = json.loads(entry)
@@ -216,13 +217,15 @@ async def sse_stream(request: Request, token: str = Query(...)):
             yield 'data: {"error": "redis unavailable"}\n\n'
         return StreamingResponse(error_gen(), media_type="text/event-stream")
 
-    stored = redis.get(f"hermes:sse:token:{token}")
+    # Atomic get-and-delete to prevent token replay
+    lua_getdel = redis.register_script(
+        'local v = redis.call("GET", KEYS[1]); redis.call("DEL", KEYS[1]); return v'
+    )
+    stored = lua_getdel(keys=[f"hermes:sse:token:{token}"])
     if stored is None:
         async def invalid_gen():
             yield 'data: {"error": "invalid token"}\n\n'
         return StreamingResponse(invalid_gen(), media_type="text/event-stream")
-
-    redis.delete(f"hermes:sse:token:{token}")
 
     async def event_generator():
         advisory_channels = (
@@ -234,12 +237,14 @@ async def sse_stream(request: Request, token: str = Query(...)):
         pubsub = redis.pubsub()
         seq = 0
         idle_ticks = 0
+        loop = asyncio.get_event_loop()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             pubsub.subscribe(*advisory_channels)
             while True:
                 if await request.is_disconnected():
                     break
-                msg = pubsub.get_message(timeout=1.0)
+                msg = await loop.run_in_executor(executor, pubsub.get_message, 1.0)
                 if msg and msg.get("type") == "message":
                     channel = msg.get("channel", "")
                     if isinstance(channel, bytes):

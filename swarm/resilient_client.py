@@ -104,6 +104,8 @@ class ResilientSwarmClient:
         with self._lock:
             if self._mode == SwarmMode.STANDALONE:
                 return
+            if self._consumer_thread is not None and self._consumer_thread.is_alive():
+                return
         self._execute_fn = execute_fn
         self._consumer = SwarmConsumer(
             agent_id=self._inner.agent_id,
@@ -117,7 +119,11 @@ class ResilientSwarmClient:
 
     def stop_consumer(self) -> None:
         """Stop the background task consumer."""
-        if self._consumer is not None:
-            self._consumer.stop()
+        consumer = self._consumer
+        thread = self._consumer_thread
         self._consumer = None
         self._consumer_thread = None
+        if consumer is not None:
+            consumer.stop()
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=5)

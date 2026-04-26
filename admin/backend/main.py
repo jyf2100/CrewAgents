@@ -68,13 +68,58 @@ app.include_router(swarm_router, prefix="/admin/api")
 # ---------------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------------
+_cors_origins_str = os.getenv("CORS_ORIGINS", "")
+if _cors_origins_str:
+    _cors_origins = [o.strip() for o in _cors_origins_str.split(",") if o.strip()]
+    _cors_credentials = True
+else:
+    _cors_origins = ["*"]
+    _cors_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+from collections import defaultdict as _defaultdict
+
+_RATE_LIMIT = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+_RATE_WINDOW = 60  # seconds
+_rate_store: dict[str, list[float]] = _defaultdict(list)
+
+
+class _RateLimitMiddleware(BaseHTTPMiddleware):
+    """Simple in-memory IP-based sliding-window rate limiter."""
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip rate limiting for health checks and static assets
+        path = request.url.path
+        if path == "/health" or path.startswith("/assets/"):
+            return await call_next(request)
+
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+        # Clean old entries
+        _rate_store[client_ip] = [
+            t for t in _rate_store[client_ip] if now - t < _RATE_WINDOW
+        ]
+
+        if len(_rate_store[client_ip]) >= _RATE_LIMIT:
+            return JSONResponse(
+                status_code=429, content={"detail": "Rate limit exceeded"}
+            )
+
+        _rate_store[client_ip].append(now)
+        return await call_next(request)
+
+
+app.add_middleware(_RateLimitMiddleware)
 
 
 # ---------------------------------------------------------------------------
