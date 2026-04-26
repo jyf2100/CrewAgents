@@ -237,7 +237,7 @@ async def sse_stream(request: Request, token: str = Query(...)):
         pubsub = redis.pubsub()
         seq = 0
         idle_ticks = 0
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             pubsub.subscribe(*advisory_channels)
@@ -270,5 +270,6 @@ async def sse_stream(request: Request, token: str = Query(...)):
                 pubsub.close()
             except Exception:
                 pass
+            executor.shutdown(wait=False)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

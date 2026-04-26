@@ -3139,7 +3139,15 @@ class AIAgent:
         except Exception:
             pass
 
-        # 5. Close the OpenAI/httpx client
+        # 5. Stop swarm consumer thread
+        try:
+            sc = getattr(self, "_swarm_client", None)
+            if sc is not None:
+                sc.stop_consumer()
+        except Exception:
+            pass
+
+        # 6. Close the OpenAI/httpx client
         try:
             client = getattr(self, "client", None)
             if client is not None:
