@@ -158,10 +158,19 @@ class SwarmConsumer:
 
         # ── Store task metadata (sorted set, score=timestamp) ─────────
         tasks_key = "hermes:swarm:tasks"
-        self._redis.zadd(
-            tasks_key,
-            {json.dumps({"task_id": task_id, "status": status}): now},
-        )
+        sender_id = fields.get("sender_id", "0")
+        task_meta = {
+            "task_id": task_id,
+            "task_type": task_type,
+            "goal": goal[:200],
+            "status": status,
+            "sender_id": int(sender_id) if sender_id.isdigit() else 0,
+            "assigned_agent_id": self._agent_id,
+            "duration_ms": duration_ms,
+            "error": (error or "")[:500],
+            "timestamp": now,
+        }
+        self._redis.zadd(tasks_key, {json.dumps(task_meta): now})
         # Prune entries older than 5 minutes
         cutoff = now - _TASK_TTL_SECONDS
         self._redis.zremrangebyscore(tasks_key, "-inf", cutoff)
