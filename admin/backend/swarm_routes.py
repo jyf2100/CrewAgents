@@ -153,6 +153,23 @@ async def create_sse_token(request: Request):
     return SSETokenResponse(token=token, expires_in=ttl)
 
 
+def _advisory_channel_to_event(channel: str, data: str) -> str:
+    """Map Redis Pub/Sub channel + data to SSE event type."""
+    try:
+        parsed = json.loads(data)
+        if "event" in parsed:
+            return parsed["event"]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    mapping = {
+        "swarm.advisory.task": "task_created",
+        "swarm.advisory.result": "task_completed",
+        "swarm.advisory.online": "agent_online",
+        "swarm.advisory.offline": "agent_offline",
+    }
+    return mapping.get(channel, "message")
+
+
 @router.get("/events/stream")
 async def sse_stream(request: Request, token: str = Query(...)):
     from fastapi.responses import StreamingResponse
@@ -172,15 +189,45 @@ async def sse_stream(request: Request, token: str = Query(...)):
     redis.delete(f"hermes:sse:token:{token}")
 
     async def event_generator():
+        advisory_channels = (
+            "swarm.advisory.task",
+            "swarm.advisory.result",
+            "swarm.advisory.online",
+            "swarm.advisory.offline",
+        )
+        pubsub = redis.pubsub()
         seq = 0
+        idle_ticks = 0
         try:
+            pubsub.subscribe(*advisory_channels)
             while True:
                 if await request.is_disconnected():
                     break
-                seq += 1
-                yield f"id: {seq}\nevent: heartbeat\ndata: {{}}\n\n"
-                await asyncio.sleep(30)
+                msg = pubsub.get_message(timeout=1.0)
+                if msg and msg.get("type") == "message":
+                    channel = msg.get("channel", "")
+                    if isinstance(channel, bytes):
+                        channel = channel.decode("utf-8", errors="replace")
+                    data = msg.get("data", "")
+                    if isinstance(data, bytes):
+                        data = data.decode("utf-8", errors="replace")
+                    event_type = _advisory_channel_to_event(channel, data)
+                    seq += 1
+                    yield f"id: {seq}\nevent: {event_type}\ndata: {data}\n\n"
+                    idle_ticks = 0
+                else:
+                    idle_ticks += 1
+                    if idle_ticks >= 5:
+                        seq += 1
+                        yield f"id: {seq}\nevent: heartbeat\ndata: {{}}\n\n"
+                        idle_ticks = 0
         except asyncio.CancelledError:
             pass
+        finally:
+            try:
+                pubsub.unsubscribe()
+                pubsub.close()
+            except Exception:
+                pass
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
