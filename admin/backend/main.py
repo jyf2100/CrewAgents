@@ -56,6 +56,11 @@ logger = logging.getLogger("hermes-admin")
 # ---------------------------------------------------------------------------
 app = FastAPI(title="Hermes Admin API", openapi_url=None, docs_url=None)
 
+# Store admin key on app.state so all modules (including swarm_routes) read
+# from the same source.  This ensures key rotation via update_admin_key is
+# visible to every endpoint without restarting the process.
+app.state.admin_key = ADMIN_KEY
+
 # Include swarm router
 app.include_router(swarm_router, prefix="/admin/api")
 
@@ -104,7 +109,9 @@ class _SpaFallbackMiddleware(BaseHTTPMiddleware):
 
         # Try static assets first
         if path.startswith("/assets/") or (path != "/" and "." in path.split("/")[-1]):
-            file_path = STATIC_DIR / path.lstrip("/")
+            file_path = (STATIC_DIR / path.lstrip("/")).resolve()
+            if not str(file_path).startswith(str(STATIC_DIR.resolve())):
+                return await call_next(request)
             if file_path.is_file():
                 return FileResponse(file_path)
 
@@ -130,12 +137,16 @@ async def _global_exception_handler(request: Request, exc: Exception):
 # ---------------------------------------------------------------------------
 # Auth dependency
 # ---------------------------------------------------------------------------
-async def verify_admin_key(x_admin_key: str = Header(..., alias="X-Admin-Key")):
+async def verify_admin_key(
+    x_admin_key: str = Header(..., alias="X-Admin-Key"),
+    request: Request = None,
+):
     """Verify the request carries the correct admin key."""
-    if not ADMIN_KEY:
+    admin_key = getattr(request.app.state, "admin_key", "")
+    if not admin_key:
         # No key configured -- allow all requests (dev mode).
         return True
-    if not hmac.compare_digest(x_admin_key, ADMIN_KEY):
+    if not hmac.compare_digest(x_admin_key, admin_key):
         raise HTTPException(status_code=401, detail="Invalid admin key")
     return True
 
@@ -201,7 +212,7 @@ async def _startup_cleanup():
 
 @app.on_event("startup")
 async def _warn_no_auth():
-    if not ADMIN_KEY:
+    if not app.state.admin_key:
         logger.warning("ADMIN_KEY not set — all API endpoints are unauthenticated!")
 
 
@@ -436,13 +447,14 @@ async def download_backup(filename: str):
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/weixin/qr",
          tags=["agents-weixin"])
-async def weixin_qr_login(agent_id: int, key: str = Query(..., alias="key")):
+async def weixin_qr_login(request: Request, agent_id: int, key: str = Query(..., alias="key")):
     """Initiate WeChat QR login session. Returns SSE stream.
 
     Uses query-param auth because EventSource cannot set custom headers.
     """
     # Auth via query param (EventSource limitation)
-    if not ADMIN_KEY or not hmac.compare_digest(key, ADMIN_KEY):
+    admin_key = getattr(request.app.state, "admin_key", "")
+    if not admin_key or not hmac.compare_digest(key, admin_key):
         raise HTTPException(status_code=401, detail="Unauthorized")
     # Validate agent exists
     try:
@@ -540,11 +552,12 @@ async def update_template(template_type: str, req: UpdateTemplateRequest):
 
 @app.get(f"{API_PREFIX}/settings", response_model=SettingsResponse,
          dependencies=[auth], tags=["settings"])
-async def get_settings():
+async def get_settings(request: Request):
     """Get current admin settings."""
+    admin_key = request.app.state.admin_key
     masked_key = ""
-    if ADMIN_KEY:
-        masked_key = ADMIN_KEY[:3] + "****" + ADMIN_KEY[-3:] if len(ADMIN_KEY) > 8 else "****"
+    if admin_key:
+        masked_key = admin_key[:3] + "****" + admin_key[-3:] if len(admin_key) > 8 else "****"
     return SettingsResponse(
         admin_key_masked=masked_key,
         default_resources=manager.get_default_resource_limits(),
@@ -561,10 +574,11 @@ async def update_settings(req: UpdateResourceLimitsRequest):
 
 @app.put(f"{API_PREFIX}/settings/admin-key", response_model=MessageResponse,
          dependencies=[auth], tags=["settings"])
-async def update_admin_key(req: UpdateAdminKeyRequest):
+async def update_admin_key(request: Request, req: UpdateAdminKeyRequest):
     """Change the admin API key. Persists to K8s Secret with file fallback."""
     global ADMIN_KEY
     ADMIN_KEY = req.new_key
+    request.app.state.admin_key = req.new_key
 
     # Try K8s Secret first
     try:
@@ -576,6 +590,11 @@ async def update_admin_key(req: UpdateAdminKeyRequest):
             pass  # Fall through to file fallback
 
     # File fallback
+    logger.warning(
+        "Admin key persisted to plaintext file (%s/_admin/admin_key) — "
+        "K8s Secret update failed; ensure this directory is excluded from backups",
+        HERMES_DATA_ROOT,
+    )
     admin_dir = os.path.join(HERMES_DATA_ROOT, "_admin")
     os.makedirs(admin_dir, exist_ok=True)
     key_path = os.path.join(admin_dir, "admin_key")
@@ -612,7 +631,9 @@ if (STATIC_DIR / "assets").is_dir():
 async def spa_fallback(full_path: str):
     """Serve the SPA: return static files for asset-like paths, index.html otherwise."""
     if "." in full_path.split("/")[-1]:
-        file_path = STATIC_DIR / full_path
+        file_path = (STATIC_DIR / full_path).resolve()
+        if not str(file_path).startswith(str(STATIC_DIR.resolve())):
+            raise HTTPException(status_code=404)
         if file_path.is_file():
             return FileResponse(file_path)
     return FileResponse(STATIC_DIR / "index.html")

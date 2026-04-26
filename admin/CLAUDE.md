@@ -66,7 +66,7 @@ docker save hermes-admin:latest | sudo ctr -n k8s.io images import -
 ### Route Organization
 - `main.py` owns agent CRUD, config, monitoring, cluster, settings, WeChat, LLM test routes.
 - `swarm_routes.py` owns all `/admin/api/swarm/*` routes, mounted via `include_router`.
-- Swarm routes have a local `_verify_swarm_admin_key` dependency (avoids circular imports with main.py). If auth logic changes, update both.
+- Swarm routes have a local `_verify_swarm_admin_key` dependency (avoids circular imports with main.py). Both read from `app.state.admin_key` so key rotation is immediately effective across all endpoints.
 
 ### Models
 - All request/response models in `models.py` (Pydantic v2). Swarm models in `swarm_models.py`.
@@ -170,5 +170,5 @@ for the context.
 - **SPA routing**: The `_SpaFallbackMiddleware` serves `index.html` for browser navigation. The Ingress `rewrite-target` strips `/admin` prefix, so browser requests like `/admin/agents/2` become `/agents/2`.
 - **`adminFetch` returns parsed JSON**: Don't call `.json()` on the result — it's already an object.
 - **i18n sync**: Adding a key to `en.ts` without `zh.ts` (or vice versa) causes type errors.
-- **Auth duplication**: `verify_admin_key` in `main.py` and `_verify_swarm_admin_key` in `swarm_routes.py` must stay in sync.
+- **Auth source of truth**: Both `verify_admin_key` (main.py) and `_verify_swarm_admin_key` (swarm_routes.py) read from `app.state.admin_key`. Key rotation via `update_admin_key` updates both the global `ADMIN_KEY` and `app.state.admin_key` so all endpoints see the new key immediately.
 - **Static files**: Production serves from `backend/static/` — after frontend changes, rebuild and copy.

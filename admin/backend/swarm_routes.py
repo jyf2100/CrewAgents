@@ -1,5 +1,4 @@
 import logging
-import os
 import hmac
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -20,19 +19,20 @@ from swarm.health import check_redis_health
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Auth — same logic as main.py's verify_admin_key.
-# Defined locally to avoid circular imports (main.py imports this module).
+# Auth — reads the active admin key from app.state so that key rotation in
+# main.py (update_admin_key) is immediately effective here too.
 # ---------------------------------------------------------------------------
-_ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
 
 async def _verify_swarm_admin_key(
     x_admin_key: str = Header(..., alias="X-Admin-Key"),
+    request: Request = None,
 ) -> bool:
     """Verify the request carries the correct admin key."""
-    if not _ADMIN_KEY:
+    admin_key = getattr(request.app.state, "admin_key", "")
+    if not admin_key:
         return True
-    if not hmac.compare_digest(x_admin_key, _ADMIN_KEY):
+    if not hmac.compare_digest(x_admin_key, admin_key):
         raise HTTPException(status_code=401, detail="Invalid admin key")
     return True
 

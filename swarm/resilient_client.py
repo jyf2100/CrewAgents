@@ -49,17 +49,21 @@ class ResilientSwarmClient:
                 self._on_degrade()
 
     def heartbeat(self) -> None:
-        with self._lock:
-            if self._mode == SwarmMode.STANDALONE:
-                return
         try:
             self._inner.heartbeat()
+            with self._lock:
+                if self._mode == SwarmMode.STANDALONE:
+                    self._mode = SwarmMode.SWARM
+                    logger.info("swarm: recovered from standalone mode")
+                    if self._on_recover:
+                        self._on_recover()
         except _redis.ConnectionError:
             with self._lock:
-                self._mode = SwarmMode.STANDALONE
-            logger.warning("swarm: heartbeat failed, degrading to standalone")
-            if self._on_degrade:
-                self._on_degrade()
+                if self._mode != SwarmMode.STANDALONE:
+                    self._mode = SwarmMode.STANDALONE
+                    logger.warning("swarm: heartbeat failed, degrading to standalone")
+                    if self._on_degrade:
+                        self._on_degrade()
 
     def submit_task(
         self,

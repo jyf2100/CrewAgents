@@ -189,8 +189,8 @@ def _save_credentials(
     # 2) Save account JSON
     accounts_dir = os.path.join(agent_dir, "weixin", "accounts")
     os.makedirs(accounts_dir, exist_ok=True)
-    # Ensure the agent process (runs as 'hermes' user) can write here
-    os.chmod(accounts_dir, 0o777)
+    # Restrict directory permissions -- contains auth tokens
+    os.chmod(accounts_dir, 0o750)
     account_file = os.path.join(accounts_dir, f"{account_id}.json")
     payload = {
         "account_id": account_id,
@@ -204,7 +204,7 @@ def _save_credentials(
         json.dump(payload, fh, ensure_ascii=False, indent=2)
     os.replace(tmp_path, account_file)
     try:
-        os.chmod(account_file, 0o666)
+        os.chmod(account_file, 0o640)
     except OSError:
         pass
 

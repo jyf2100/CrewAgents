@@ -1792,7 +1792,10 @@ class AIAgent:
                 pass
 
             if self.verbose_logging:
-                logger.info("swarm: initialized for agent %d (url=%s)", _agent_id, redis_url)
+                from urllib.parse import urlparse as _urlparse
+                _parsed = _urlparse(redis_url)
+                _safe_url = redis_url.replace(_parsed.password, "***") if _parsed.password else redis_url
+                logger.info("swarm: initialized for agent %d (url=%s)", _agent_id, _safe_url)
         except Exception as exc:
             logger.warning("swarm: init failed, running standalone: %s", exc)
             self._swarm_client = None

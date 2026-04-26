@@ -30,9 +30,22 @@ def test_submit_returns_none_in_standalone():
     assert result is None
 
 
-def test_heartbeat_noop_in_standalone():
+def test_heartbeat_recovers_from_standalone():
     inner = MagicMock(spec=SwarmClient)
-    rclient = ResilientSwarmClient(inner=inner)
+    recover_cb = MagicMock()
+    rclient = ResilientSwarmClient(inner=inner, on_recover=recover_cb)
     rclient._mode = SwarmMode.STANDALONE
     rclient.heartbeat()
-    inner.heartbeat.assert_not_called()
+    inner.heartbeat.assert_called_once()
+    assert rclient.mode == SwarmMode.SWARM
+    recover_cb.assert_called_once()
+
+
+def test_heartbeat_stays_standalone_on_connection_error():
+    inner = MagicMock(spec=SwarmClient)
+    inner.heartbeat.side_effect = _redis.ConnectionError("refused")
+    degrade_cb = MagicMock()
+    rclient = ResilientSwarmClient(inner=inner, on_degrade=degrade_cb)
+    rclient._mode = SwarmMode.STANDALONE
+    rclient.heartbeat()
+    assert rclient.mode == SwarmMode.STANDALONE

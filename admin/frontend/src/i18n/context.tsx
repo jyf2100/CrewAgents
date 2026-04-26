@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from "react";
 import { zh } from "./zh";
 import { en } from "./en";
 
@@ -25,8 +25,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("admin_lang", l);
     setLangState(l);
   }, []);
+  const value = useMemo(() => ({ t: translations[lang], lang, setLang }), [lang, setLang]);
   return (
-    <I18nContext.Provider value={{ t: translations[lang], lang, setLang }}>
+    <I18nContext.Provider value={value}>
       {children}
     </I18nContext.Provider>
   );
