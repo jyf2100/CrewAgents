@@ -57,7 +57,7 @@ test.describe("Swarm Overview", () => {
     });
 
     await page.goto("/admin/swarm");
-    await expect(page.getByText("Connected")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Connected|已连接/)).toBeVisible({ timeout: 10000 });
     await expect(page.getByText("7.2.0")).toBeVisible();
   });
 
@@ -72,6 +72,6 @@ test.describe("Swarm Overview", () => {
     });
 
     await page.goto("/admin/swarm");
-    await expect(page).toHaveURL(/\/$/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/admin\/?$/, { timeout: 10000 });
   });
 });
