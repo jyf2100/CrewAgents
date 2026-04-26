@@ -63,7 +63,9 @@ async def _get_agents_data(request: Request) -> list[SwarmAgentProfile]:
             agents.append(SwarmAgentProfile(
                 agent_id=int(profile.get("agent_id", agent_id_str)),
                 display_name=profile.get("display_name", f"Agent-{agent_id_str}"),
-                capabilities=json.loads(profile.get("capabilities", "[]")),
+                capabilities=profile.get("capabilities", [])
+                if isinstance(profile.get("capabilities"), str)
+                else profile.get("capabilities", []),
                 status=profile.get("status", "unknown"),
                 current_tasks=int(profile.get("current_tasks", 0)),
                 max_concurrent_tasks=int(profile.get("max_concurrent_tasks", 3)),
