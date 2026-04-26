@@ -7,6 +7,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SwarmGuard } from "./components/SwarmGuard";
 import { SwarmOverviewPage } from "./pages/swarm/SwarmOverviewPage";
+import { TaskMonitorPage } from "./pages/swarm/TaskMonitorPage";
 import { setAdminKey } from "./lib/admin-api";
 import { useEffect } from "react";
 
@@ -32,6 +33,7 @@ function App() {
             }
           >
             <Route path="/swarm" element={<SwarmOverviewPage />} />
+            <Route path="/swarm/tasks" element={<TaskMonitorPage />} />
           </Route>
         </Route>
         <Route path="/login" element={<LoginPage />} />

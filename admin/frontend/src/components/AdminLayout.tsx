@@ -229,6 +229,44 @@ export function AdminLayout() {
               </>
             )}
           </NavLink>
+          <NavLink
+            to="/swarm/tasks"
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              [
+                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors duration-150 relative",
+                isActive
+                  ? "text-text-primary font-medium"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface/50",
+              ].join(" ")
+            }
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && (
+                  <span
+                    className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent-pink"
+                    aria-hidden="true"
+                  />
+                )}
+                <svg
+                  viewBox="0 0 24 24"
+                  className="w-4 h-4 shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                  />
+                </svg>
+                <span>{t.navTasks}</span>
+              </>
+            )}
+          </NavLink>
         </div>
 
         {/* Bottom section */}

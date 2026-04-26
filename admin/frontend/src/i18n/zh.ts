@@ -309,6 +309,23 @@ export interface Translations {
   memory: string;
   clients: string;
   redisLabel: string;
+
+  // Task Monitor
+  navTasks: string;
+  taskMonitor: string;
+  taskId: string;
+  taskGoal: string;
+  taskStatus: string;
+  taskAgent: string;
+  taskDuration: string;
+  taskTime: string;
+  taskType: string;
+  taskNoTasks: string;
+  taskFilterAll: string;
+  taskFilterCompleted: string;
+  taskFilterFailed: string;
+  taskFilterRunning: string;
+  taskFilterPending: string;
 }
 
 export const zh: Translations = {
@@ -642,4 +659,21 @@ export const zh: Translations = {
   memory: "内存",
   clients: "客户端数",
   redisLabel: "Redis",
+
+  // Task Monitor
+  navTasks: "任务",
+  taskMonitor: "任务监控",
+  taskId: "任务 ID",
+  taskGoal: "目标",
+  taskStatus: "状态",
+  taskAgent: "Agent",
+  taskDuration: "耗时",
+  taskTime: "时间",
+  taskType: "类型",
+  taskNoTasks: "暂无任务",
+  taskFilterAll: "全部",
+  taskFilterCompleted: "已完成",
+  taskFilterFailed: "已失败",
+  taskFilterRunning: "执行中",
+  taskFilterPending: "等待中",
 };

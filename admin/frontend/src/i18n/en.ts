@@ -331,4 +331,21 @@ export const en: Translations = {
   memory: "Memory",
   clients: "Clients",
   redisLabel: "Redis",
+
+  // Task Monitor
+  navTasks: "Tasks",
+  taskMonitor: "Task Monitor",
+  taskId: "Task ID",
+  taskGoal: "Goal",
+  taskStatus: "Status",
+  taskAgent: "Agent",
+  taskDuration: "Duration",
+  taskTime: "Time",
+  taskType: "Type",
+  taskNoTasks: "No recent tasks",
+  taskFilterAll: "All",
+  taskFilterCompleted: "Completed",
+  taskFilterFailed: "Failed",
+  taskFilterRunning: "Running",
+  taskFilterPending: "Pending",
 };
