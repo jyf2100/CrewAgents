@@ -8,6 +8,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { SwarmGuard } from "./components/SwarmGuard";
 import { SwarmOverviewPage } from "./pages/swarm/SwarmOverviewPage";
 import { TaskMonitorPage } from "./pages/swarm/TaskMonitorPage";
+import { TaskDetailPage } from "./pages/swarm/TaskDetailPage";
 import { setAdminKey } from "./lib/admin-api";
 import { useEffect } from "react";
 
@@ -34,6 +35,7 @@ function App() {
           >
             <Route path="/swarm" element={<SwarmOverviewPage />} />
             <Route path="/swarm/tasks" element={<TaskMonitorPage />} />
+            <Route path="/swarm/tasks/:id" element={<TaskDetailPage />} />
           </Route>
         </Route>
         <Route path="/login" element={<LoginPage />} />
