@@ -631,7 +631,9 @@ if (STATIC_DIR / "assets").is_dir():
 async def spa_fallback(full_path: str):
     """Serve the SPA: return static files for asset-like paths, index.html otherwise."""
     if "." in full_path.split("/")[-1]:
-        file_path = (STATIC_DIR / full_path).resolve()
+        # Strip /admin prefix for asset lookups (assets are at /assets not /admin/assets)
+        lookup_path = full_path[7:] if full_path.startswith("admin/") else full_path
+        file_path = (STATIC_DIR / lookup_path).resolve()
         if not str(file_path).startswith(str(STATIC_DIR.resolve())):
             raise HTTPException(status_code=404)
         if file_path.is_file():
