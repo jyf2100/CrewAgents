@@ -309,6 +309,66 @@ export interface Translations {
   memory: string;
   clients: string;
   redisLabel: string;
+  // Knowledge
+  knowledgeTitle: string;
+  knowledgeAdd: string;
+  knowledgeContent: string;
+  knowledgeCategory: string;
+  knowledgeTags: string;
+  knowledgeSearch: string;
+  knowledgeNoEntries: string;
+  knowledgeDeleteConfirm: string;
+  // Navigation
+  navTasks: string;
+  navKnowledge: string;
+  navCrews: string;
+  // Crew
+  crewTitle: string;
+  crewAdd: string;
+  crewEdit: string;
+  crewName: string;
+  crewDescription: string;
+  crewAgents: string;
+  crewAgentId: string;
+  crewAgentCapability: string;
+  crewWorkflowType: string;
+  crewWorkflowSteps: string;
+  crewStepId: string;
+  crewStepCapability: string;
+  crewStepTemplate: string;
+  crewStepDependsOn: string;
+  crewStepInputFrom: string;
+  crewStepTimeout: string;
+  crewWorkflowTimeout: string;
+  crewNoCrews: string;
+  crewCreateButton: string;
+  crewDeleteConfirm: string;
+  crewDeleteLabel: string;
+  crewCancel: string;
+  crewSave: string;
+  crewSequential: string;
+  crewParallel: string;
+  crewDAG: string;
+  crewExecute: string;
+  crewExecuting: string;
+  crewExecuteConfirm: string;
+  crewExecutionStatus: string;
+  crewExecutionCompleted: string;
+  crewExecutionFailed: string;
+  crewExecutionPending: string;
+  crewExecutionRunning: string;
+  crewLoadError: string;
+  crewAgentOnline: string;
+  crewAgentOffline: string;
+  crewAgentBusy: string;
+  crewAddStep: string;
+  crewRemoveStep: string;
+  crewAddAgent: string;
+  crewRemoveAgent: string;
+  crewStepTemplateHint: string;
+  crewValidationCycle: string;
+  crewValidationEmptySteps: string;
+  crewValidationRequired: string;
 }
 
 export const zh: Translations = {
@@ -642,4 +702,66 @@ export const zh: Translations = {
   memory: "内存",
   clients: "客户端数",
   redisLabel: "Redis",
+  // Knowledge
+  knowledgeTitle: "知识库",
+  knowledgeAdd: "添加知识",
+  knowledgeContent: "内容",
+  knowledgeCategory: "分类",
+  knowledgeTags: "标签",
+  knowledgeSearch: "搜索知识...",
+  knowledgeNoEntries: "暂无知识条目",
+  knowledgeDeleteConfirm: "确定删除此知识条目？",
+
+  // Navigation
+  navTasks: "任务",
+  navKnowledge: "知识库",
+  navCrews: "Crews",
+
+  // Crew
+  crewTitle: "Crew 管理",
+  crewAdd: "创建 Crew",
+  crewEdit: "编辑 Crew",
+  crewName: "名称",
+  crewDescription: "描述",
+  crewAgents: "Agent 分配",
+  crewAgentId: "Agent ID",
+  crewAgentCapability: "所需能力",
+  crewWorkflowType: "工作流类型",
+  crewWorkflowSteps: "工作流步骤",
+  crewStepId: "步骤 ID",
+  crewStepCapability: "能力",
+  crewStepTemplate: "任务模板",
+  crewStepDependsOn: "依赖步骤",
+  crewStepInputFrom: "输入映射",
+  crewStepTimeout: "步骤超时(秒)",
+  crewWorkflowTimeout: "工作流超时(秒)",
+  crewNoCrews: "暂无 Crew",
+  crewCreateButton: "创建",
+  crewDeleteConfirm: "确定删除此 Crew？",
+  crewDeleteLabel: "删除",
+  crewCancel: "取消",
+  crewSave: "保存",
+  crewSequential: "顺序",
+  crewParallel: "并行",
+  crewDAG: "DAG",
+  crewExecute: "执行",
+  crewExecuting: "执行中...",
+  crewExecuteConfirm: "确定执行此 Crew 的工作流？",
+  crewExecutionStatus: "执行状态",
+  crewExecutionCompleted: "已完成",
+  crewExecutionFailed: "失败",
+  crewExecutionPending: "等待中",
+  crewExecutionRunning: "运行中",
+  crewLoadError: "加载 Crew 列表失败",
+  crewAgentOnline: "在线",
+  crewAgentOffline: "离线",
+  crewAgentBusy: "忙碌",
+  crewAddStep: "添加步骤",
+  crewRemoveStep: "移除",
+  crewAddAgent: "添加 Agent",
+  crewRemoveAgent: "移除",
+  crewStepTemplateHint: "使用 {step_id} 引用上一步输出",
+  crewValidationCycle: "工作流存在循环依赖",
+  crewValidationEmptySteps: "至少需要一个步骤",
+  crewValidationRequired: "此字段为必填",
 };
