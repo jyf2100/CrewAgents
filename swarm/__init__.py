@@ -15,6 +15,7 @@ from .stalled_scanner import StalledScanner
 from .router import SwarmRouter
 from .knowledge import KnowledgeStore, KnowledgeEntry
 from .crew_store import CrewStore, CrewConfig, CrewAgent, WorkflowDef, WorkflowStep
+from .workflow import WorkflowEngine, StepResult, CrewExecution
 
 __all__ = [
     "ConnectionConfig",
@@ -44,4 +45,7 @@ __all__ = [
     "CrewAgent",
     "WorkflowDef",
     "WorkflowStep",
+    "WorkflowEngine",
+    "StepResult",
+    "CrewExecution",
 ]
