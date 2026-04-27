@@ -79,6 +79,10 @@ class WorkflowDefModel(BaseModel):
     @model_validator(mode="after")
     def validate_step_deps(self) -> "WorkflowDefModel":
         step_ids = {s.id for s in self.steps}
+        step_ids_list = [s.id for s in self.steps]
+        if len(step_ids_list) != len(set(step_ids_list)):
+            dupes = {sid for sid in step_ids_list if step_ids_list.count(sid) > 1}
+            raise ValueError(f"Duplicate step IDs: {dupes}")
         for step in self.steps:
             for dep in step.depends_on:
                 if dep not in step_ids:

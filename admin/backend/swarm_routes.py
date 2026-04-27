@@ -7,6 +7,7 @@ import time
 import secrets
 import asyncio
 import concurrent.futures
+import atexit
 
 from swarm_models import (
     SwarmCapabilityResponse,
@@ -99,6 +100,9 @@ def _get_crew_store(request: Request) -> CrewStore | None:
 
 
 _workflow_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+
+atexit.register(lambda: _workflow_executor.shutdown(wait=False))
 
 
 @router.get("/capability", response_model=SwarmCapabilityResponse, dependencies=[_auth])
@@ -228,7 +232,7 @@ async def create_crew(request: Request, body: CrewCreateRequest):
 
 @router.get("/crews/{crew_id}", response_model=CrewResponse | None,
              dependencies=[_auth])
-async def get_crew(request: Request, crew_id: str = Path(...)):
+async def get_crew(request: Request, crew_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,64}$")):
     store = _get_crew_store(request)
     if store is None:
         raise HTTPException(status_code=503, detail="Redis unavailable")
@@ -241,7 +245,7 @@ async def get_crew(request: Request, crew_id: str = Path(...)):
 @router.put("/crews/{crew_id}", response_model=CrewResponse | None,
              dependencies=[_auth])
 async def update_crew(request: Request, body: CrewUpdateRequest,
-                      crew_id: str = Path(...)):
+                      crew_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,64}$")):
     store = _get_crew_store(request)
     if store is None:
         raise HTTPException(status_code=503, detail="Redis unavailable")
@@ -269,11 +273,11 @@ async def update_crew(request: Request, body: CrewUpdateRequest,
     crew = store.update(crew_id, updates)
     if crew is None:
         raise HTTPException(status_code=404, detail="Crew not found")
-    return await get_crew(request, crew_id)
+    return _crew_to_response(crew)
 
 
 @router.delete("/crews/{crew_id}", dependencies=[_auth])
-async def delete_crew(request: Request, crew_id: str = Path(...)):
+async def delete_crew(request: Request, crew_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,64}$")):
     store = _get_crew_store(request)
     if store is None:
         raise HTTPException(status_code=503, detail="Redis unavailable")
@@ -284,7 +288,7 @@ async def delete_crew(request: Request, crew_id: str = Path(...)):
 
 
 @router.post("/crews/{crew_id}/execute", dependencies=[_auth])
-async def execute_crew(request: Request, crew_id: str = Path(...)):
+async def execute_crew(request: Request, crew_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,64}$")):
     redis = _get_redis(request)
     if redis is None:
         raise HTTPException(status_code=503, detail="Redis unavailable")
@@ -302,30 +306,66 @@ async def execute_crew(request: Request, crew_id: str = Path(...)):
         raise HTTPException(status_code=409, detail="Crew execution already in progress")
 
     def _run():
-        router = SwarmRouter(redis)
-        messaging = SwarmMessaging(redis)
-        engine = WorkflowEngine(redis, router, messaging)
-        execution = engine.execute(crew.workflow, crew_id=crew_id)
-        # Persist result
-        redis.hset(f"hermes:crew_exec:{execution.exec_id}", "data",
-                   json.dumps({
-                       "exec_id": execution.exec_id,
-                       "crew_id": execution.crew_id,
-                       "status": execution.status,
-                       "step_results": {
-                           sid: {"step_id": r.step_id, "status": r.status,
-                                 "output": r.output, "error": r.error,
-                                 "agent_id": r.agent_id, "duration_ms": r.duration_ms}
-                           for sid, r in execution.step_results.items()
-                       },
-                       "error": execution.error,
-                       "started_at": execution.started_at,
-                       "finished_at": execution.finished_at,
-                       "timeout_seconds": execution.timeout_seconds,
-                   }))
-        redis.expire(f"hermes:crew_exec:{execution.exec_id}", 3600)
-        # Release lock
+        try:
+            router = SwarmRouter(redis)
+            messaging = SwarmMessaging(redis)
+            engine = WorkflowEngine(redis, router, messaging)
+            execution = engine.execute(crew.workflow, crew_id=crew_id)
+            # Persist result
+            redis.hset(f"hermes:crew_exec:{execution.exec_id}", "data",
+                       json.dumps({
+                           "exec_id": execution.exec_id,
+                           "crew_id": execution.crew_id,
+                           "status": execution.status,
+                           "step_results": {
+                               sid: {"step_id": r.step_id, "status": r.status,
+                                     "output": r.output, "error": r.error,
+                                     "agent_id": r.agent_id, "duration_ms": r.duration_ms}
+                               for sid, r in execution.step_results.items()
+                           },
+                           "error": execution.error,
+                           "started_at": execution.started_at,
+                           "finished_at": execution.finished_at,
+                           "timeout_seconds": execution.timeout_seconds,
+                       }))
+            redis.expire(f"hermes:crew_exec:{execution.exec_id}", 3600)
+        except Exception as exc:
+            logger.exception("Crew execution failed for %s: %s", crew_id, exc)
+            # Persist failure so polling endpoint can report it
+            try:
+                redis.hset(f"hermes:crew_exec:{exec_id}", "data",
+                           json.dumps({
+                               "exec_id": exec_id, "crew_id": crew_id,
+                               "status": "failed", "step_results": {},
+                               "error": f"Internal error: {exc}",
+                               "started_at": time.monotonic(), "finished_at": time.monotonic(),
+                               "timeout_seconds": crew.workflow.timeout_seconds,
+                           }))
+                redis.expire(f"hermes:crew_exec:{exec_id}", 3600)
+            except Exception:
+                logger.exception("Failed to persist crew execution error")
+        finally:
+            # Always release the lock
+            try:
+                redis.delete(lock_key)
+            except Exception:
+                logger.exception("Failed to release crew lock %s", lock_key)
+
+    # H4: Reject if thread pool queue is overloaded
+    if _workflow_executor._work_queue.qsize() >= 8:  # type: ignore[attr-defined]
         redis.delete(lock_key)
+        raise HTTPException(status_code=429, detail="Maximum concurrent workflows reached. Try again later.")
+
+    # C2: Write initial running state so polling endpoint can return it immediately
+    redis.hset(f"hermes:crew_exec:{exec_id}", "data",
+               json.dumps({
+                   "exec_id": exec_id, "crew_id": crew_id,
+                   "status": "pending", "step_results": {},
+                   "error": None,
+                   "started_at": time.time(), "finished_at": None,
+                   "timeout_seconds": crew.workflow.timeout_seconds,
+               }))
+    redis.expire(f"hermes:crew_exec:{exec_id}", crew.workflow.timeout_seconds + 120)
 
     _workflow_executor.submit(_run)
     return {"exec_id": exec_id, "status": "pending"}
@@ -334,8 +374,8 @@ async def execute_crew(request: Request, crew_id: str = Path(...)):
 @router.get("/crews/{crew_id}/executions/{exec_id}",
              response_model=CrewExecutionResponse | None,
              dependencies=[_auth])
-async def get_execution(request: Request, crew_id: str = Path(...),
-                        exec_id: str = Path(...)):
+async def get_execution(request: Request, crew_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,64}$"),
+                        exec_id: str = Path(..., pattern=r"^[a-zA-Z0-9_-]{1,64}$")):
     redis = _get_redis(request)
     if redis is None:
         return None
@@ -343,6 +383,8 @@ async def get_execution(request: Request, crew_id: str = Path(...),
     if not raw:
         return None
     data = json.loads(raw)
+    if data.get("crew_id") != crew_id:
+        raise HTTPException(status_code=404, detail="Execution not found")
     return CrewExecutionResponse(**data)
 
 
