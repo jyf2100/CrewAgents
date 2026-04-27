@@ -119,11 +119,15 @@ def test_delete_removes_from_index_and_data():
     store = _make_store()
     crew = _sample_crew()
     store._redis.hget.return_value = json.dumps(asdict(crew))
+    pipe_mock = MagicMock()
+    store._redis.pipeline.return_value = pipe_mock
 
     result = store.delete("test-uuid")
     assert result is True
-    store._redis.srem.assert_called_with("hermes:crews:index", "test-uuid")
-    store._redis.delete.assert_called_with("hermes:crew:test-uuid")
+    store._redis.pipeline.assert_called_once_with(transaction=True)
+    pipe_mock.delete.assert_called_with("hermes:crew:test-uuid")
+    pipe_mock.srem.assert_called_with("hermes:crews:index", "test-uuid")
+    pipe_mock.execute.assert_called_once()
 
 
 def test_delete_returns_false_when_missing():

@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import Any
 
 from swarm.crew_store import WorkflowDef, WorkflowStep
@@ -19,6 +21,9 @@ _ADMIN_SENDER_ID = 0
 # Use uuid.uuid4 but allow patching via module-level reference
 uuid4 = uuid.uuid4
 
+# Dunder-key pattern — reject SSTI-style __xxx__ lookups in format strings.
+_DUNDER_RE = re.compile(r"__\w+__")
+
 
 # ---------------------------------------------------------------------------
 # _SafeFormat — safe variable replacement without Jinja2
@@ -26,6 +31,7 @@ uuid4 = uuid.uuid4
 
 class _Namespace:
     """Lightweight namespace that supports attribute access for .output patterns."""
+    __slots__ = ("output",)
 
     def __init__(self, output: str) -> None:
         self.output = output
@@ -40,6 +46,7 @@ class _SafeFormat:
     Known keys (step IDs from the workflow) are resolved normally.
     Unknown brace expressions are preserved verbatim (no KeyError).
     Step output containing ``{`` / ``}`` is pre-escaped to ``{{`` / ``}}``.
+    Dunder patterns (``__xxx__``) are rejected to prevent SSTI.
     """
 
     def format(self, template: str, **kwargs: Any) -> str:
@@ -53,6 +60,8 @@ class _SafeFormat:
 
         class _SafeDict(dict):
             def __missing__(self, key: str) -> str:
+                if _DUNDER_RE.search(key):
+                    return f"{{INVALID:{key}}}"
                 return f"{{{key}}}"
 
         return template.format_map(_SafeDict(safe_kwargs))
@@ -124,6 +133,7 @@ class CrewExecution:
     started_at: float = 0.0
     finished_at: float | None = None
     timeout_seconds: int = 300
+    _deadline: float = 0.0  # monotonic deadline for timeout check
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +148,7 @@ class WorkflowEngine:
         self._router = router
         self._messaging = messaging
         self._formatter = _SafeFormat()
+        self._result_lock = threading.Lock()
 
     def execute(self, workflow: WorkflowDef, crew_id: str = "",
                 workflow_timeout: int | None = None) -> CrewExecution:
@@ -146,8 +157,9 @@ class WorkflowEngine:
             exec_id=str(uuid4()),
             crew_id=crew_id,
             status="running",
-            started_at=time.monotonic(),
+            started_at=time.time(),
             timeout_seconds=timeout,
+            _deadline=time.monotonic() + timeout,
         )
 
         if workflow.type == "sequential":
@@ -159,12 +171,11 @@ class WorkflowEngine:
 
         if execution.status == "running":
             execution.status = "completed"
-        execution.finished_at = time.monotonic()
+        execution.finished_at = time.time()
         return execution
 
     def _check_timeout(self, execution: CrewExecution) -> bool:
-        elapsed = time.monotonic() - execution.started_at
-        return elapsed > execution.timeout_seconds
+        return time.monotonic() > execution._deadline
 
     def _execute_step(
         self, step: WorkflowStep, results: dict[str, StepResult],
@@ -242,10 +253,11 @@ class WorkflowEngine:
                     result = future.result()
                 except Exception as e:
                     result = StepResult(step_id=step.id, status="failed", error=str(e))
-                execution.step_results[step.id] = result
-                if result.status == "failed" and execution.status == "running":
-                    execution.status = "failed"
-                    execution.error = f"Step {step.id} failed: {result.error}"
+                with self._result_lock:
+                    execution.step_results[step.id] = result
+                    if result.status == "failed" and execution.status == "running":
+                        execution.status = "failed"
+                        execution.error = f"Step {step.id} failed: {result.error}"
 
     def _run_dag(self, workflow: WorkflowDef, execution: CrewExecution) -> None:
         step_map = {s.id: s for s in workflow.steps}
@@ -276,10 +288,11 @@ class WorkflowEngine:
                         result = future.result()
                     except Exception as e:
                         result = StepResult(step_id=sid, status="failed", error=str(e))
-                    execution.step_results[sid] = result
-                    if result.status == "failed" and execution.status == "running":
-                        execution.status = "failed"
-                        execution.error = f"Step {sid} failed: {result.error}"
+                    with self._result_lock:
+                        execution.step_results[sid] = result
+                        if result.status == "failed" and execution.status == "running":
+                            execution.status = "failed"
+                            execution.error = f"Step {sid} failed: {result.error}"
 
     def _cancel_remaining(self, workflow: WorkflowDef, failed_id: str,
                            execution: CrewExecution) -> None:

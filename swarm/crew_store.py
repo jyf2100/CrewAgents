@@ -94,6 +94,8 @@ class CrewStore:
       - ``hermes:crews:index``     — set of all crew IDs
     """
 
+    _ALLOWED_UPDATE_FIELDS = {"name", "description", "agents", "workflow"}
+
     def __init__(self, redis_client: Any) -> None:
         self._redis = redis_client
 
@@ -117,7 +119,7 @@ class CrewStore:
             updated_at=now,
             created_by=created_by,
         )
-        pipe = self._redis.pipeline()
+        pipe = self._redis.pipeline(transaction=True)
         pipe.hset(f"hermes:crew:{crew_id}", "data", json.dumps(asdict(crew)))
         pipe.sadd("hermes:crews:index", crew_id)
         pipe.execute()
@@ -150,7 +152,8 @@ class CrewStore:
         if not raw:
             return None
         d = json.loads(raw)
-        d.update(updates)
+        filtered = {k: v for k, v in updates.items() if k in self._ALLOWED_UPDATE_FIELDS}
+        d.update(filtered)
         d["updated_at"] = time.time()
         self._redis.hset(f"hermes:crew:{crew_id}", "data", json.dumps(d))
         return _parse_raw(json.dumps(d), crew_id)
@@ -160,8 +163,10 @@ class CrewStore:
         if not exists:
             return False
         try:
-            self._redis.delete(f"hermes:crew:{crew_id}")
-            self._redis.srem("hermes:crews:index", crew_id)
+            pipe = self._redis.pipeline(transaction=True)
+            pipe.delete(f"hermes:crew:{crew_id}")
+            pipe.srem("hermes:crews:index", crew_id)
+            pipe.execute()
         except Exception:
             logger.warning("Crew delete failed for %s", crew_id, exc_info=True)
             return False

@@ -6,8 +6,7 @@ import json
 import time
 import secrets
 import asyncio
-import concurrent.futures
-import atexit
+import threading
 
 from swarm_models import (
     SwarmCapabilityResponse,
@@ -27,7 +26,13 @@ from swarm_models import (
 from swarm.health import check_redis_health
 from swarm.crew_store import CrewStore
 from swarm.workflow import WorkflowEngine
-from swarm.router import SwarmRouter
+
+try:
+    from swarm.router import SwarmRouter
+    _HAS_ROUTER = True
+except ImportError:
+    _HAS_ROUTER = False
+
 from swarm.messaging import SwarmMessaging
 
 logger = logging.getLogger(__name__)
@@ -99,10 +104,16 @@ def _get_crew_store(request: Request) -> CrewStore | None:
     return CrewStore(redis)
 
 
-_workflow_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+_workflow_semaphore = threading.Semaphore(4)
 
-
-atexit.register(lambda: _workflow_executor.shutdown(wait=False))
+# Lua script for atomic compare-and-delete of distributed lock.
+_RELEASE_LOCK_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+else
+    return 0
+end
+"""
 
 
 @router.get("/capability", response_model=SwarmCapabilityResponse, dependencies=[_auth])
@@ -297,6 +308,9 @@ async def execute_crew(request: Request, crew_id: str = Path(..., pattern=r"^[a-
     if crew is None:
         raise HTTPException(status_code=404, detail="Crew not found")
 
+    if not _HAS_ROUTER:
+        raise HTTPException(status_code=503, detail="SwarmRouter not available")
+
     # Distributed lock — prevent concurrent execution of the same crew
     lock_key = f"hermes:crew_exec_lock:{crew_id}"
     import uuid as _uuid
@@ -304,6 +318,15 @@ async def execute_crew(request: Request, crew_id: str = Path(..., pattern=r"^[a-
     acquired = redis.set(lock_key, exec_id, nx=True, ex=crew.workflow.timeout_seconds + 60)
     if not acquired:
         raise HTTPException(status_code=409, detail="Crew execution already in progress")
+
+    # Check concurrency limit via semaphore (non-blocking)
+    if not _workflow_semaphore.acquire(blocking=False):
+        # Overloaded — release lock atomically and reject
+        try:
+            redis.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, exec_id)
+        except Exception:
+            logger.exception("Failed to release crew lock %s on 429 rejection", lock_key)
+        raise HTTPException(status_code=429, detail="Maximum concurrent workflows reached. Try again later.")
 
     def _run():
         try:
@@ -338,25 +361,20 @@ async def execute_crew(request: Request, crew_id: str = Path(..., pattern=r"^[a-
                                "exec_id": exec_id, "crew_id": crew_id,
                                "status": "failed", "step_results": {},
                                "error": f"Internal error: {exc}",
-                               "started_at": time.monotonic(), "finished_at": time.monotonic(),
+                               "started_at": time.time(), "finished_at": time.time(),
                                "timeout_seconds": crew.workflow.timeout_seconds,
                            }))
                 redis.expire(f"hermes:crew_exec:{exec_id}", 3600)
             except Exception:
                 logger.exception("Failed to persist crew execution error")
         finally:
-            # Always release the lock
+            _workflow_semaphore.release()
             try:
-                redis.delete(lock_key)
+                redis.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, exec_id)
             except Exception:
                 logger.exception("Failed to release crew lock %s", lock_key)
 
-    # H4: Reject if thread pool queue is overloaded
-    if _workflow_executor._work_queue.qsize() >= 8:  # type: ignore[attr-defined]
-        redis.delete(lock_key)
-        raise HTTPException(status_code=429, detail="Maximum concurrent workflows reached. Try again later.")
-
-    # C2: Write initial running state so polling endpoint can return it immediately
+    # Write initial running state so polling endpoint can return it immediately
     redis.hset(f"hermes:crew_exec:{exec_id}", "data",
                json.dumps({
                    "exec_id": exec_id, "crew_id": crew_id,
@@ -367,7 +385,8 @@ async def execute_crew(request: Request, crew_id: str = Path(..., pattern=r"^[a-
                }))
     redis.expire(f"hermes:crew_exec:{exec_id}", crew.workflow.timeout_seconds + 120)
 
-    _workflow_executor.submit(_run)
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
     return {"exec_id": exec_id, "status": "pending"}
 
 
