@@ -246,3 +246,43 @@ export const mockTestLlmResponse = {
   error: null,
   response_preview: "Hello! How can I help?",
 };
+
+// -- Crew --
+export const mockCrews = {
+  results: [
+    {
+      crew_id: "crew-1",
+      name: "Review Team",
+      description: "Code review crew",
+      agents: [{ agent_id: 1, required_capability: "code-review" }],
+      workflow: {
+        type: "sequential",
+        steps: [
+          { id: "step_1", required_capability: "code-review", task_template: "Review: {input}", depends_on: [], input_from: {}, timeout_seconds: 120 },
+        ],
+        timeout_seconds: 300,
+      },
+      created_at: 1745700000,
+      updated_at: 1745700000,
+      created_by: "admin",
+    },
+  ],
+  total: 1,
+};
+
+export const mockCreatedCrew = {
+  crew_id: "crew-new",
+  name: "New Crew",
+  description: "A new crew",
+  agents: [],
+  workflow: {
+    type: "parallel",
+    steps: [
+      { id: "step_1", required_capability: "translation", task_template: "Translate", depends_on: [], input_from: {}, timeout_seconds: 120 },
+    ],
+    timeout_seconds: 300,
+  },
+  created_at: 1745700100,
+  updated_at: 1745700100,
+  created_by: "admin",
+};
