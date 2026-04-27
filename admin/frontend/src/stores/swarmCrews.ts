@@ -58,6 +58,7 @@ interface SwarmCrewsState {
   loading: boolean;
   error: string | null;
   execution: ExecutionResult | null;
+  executionCrewId: string | null;
   executionLoading: boolean;
   fetchCrews: () => Promise<void>;
   createCrew: (
@@ -74,6 +75,7 @@ export const useSwarmCrews = create<SwarmCrewsState>((set, get) => ({
   loading: false,
   error: null,
   execution: null,
+  executionCrewId: null,
   executionLoading: false,
 
   fetchCrews: async () => {
@@ -130,7 +132,7 @@ export const useSwarmCrews = create<SwarmCrewsState>((set, get) => ({
   },
 
   executeCrew: async (crewId) => {
-    set({ executionLoading: true, execution: null });
+    set({ executionLoading: true, execution: null, executionCrewId: crewId });
     try {
       const result = await adminFetch<{ exec_id: string; status: string }>(
         `/swarm/crews/${crewId}/execute`,

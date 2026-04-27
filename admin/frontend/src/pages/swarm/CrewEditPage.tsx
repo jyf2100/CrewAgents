@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useSwarmCrews, WorkflowStep, CrewAgent } from "../../stores/swarmCrews";
+import { useSwarmCrews, WorkflowStep, CrewAgent, Crew } from "../../stores/swarmCrews";
 import { useSwarmRegistry } from "../../stores/swarmRegistry";
 import { useI18n } from "../../hooks/useI18n";
 
@@ -21,6 +21,7 @@ export function CrewEditPage() {
     { id: "step_1", required_capability: "", task_template: "", depends_on: [], input_from: {}, timeout_seconds: 120 },
   ]);
   const [saving, setSaving] = useState(false);
+  const [notFound, setNotFound] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,7 +32,7 @@ export function CrewEditPage() {
   }, [fetchAgents, fetchCrews, isEdit]);
 
   useEffect(() => {
-    if (isEdit && id) {
+    if (isEdit && id && crews.length > 0) {
       const crew = crews.find((c) => c.crew_id === id);
       if (crew) {
         setName(crew.name);
@@ -40,6 +41,8 @@ export function CrewEditPage() {
         setWorkflowTimeout(crew.workflow.timeout_seconds);
         setCrewAgents(crew.agents);
         setSteps(crew.workflow.steps);
+      } else {
+        setNotFound(true);
       }
     }
   }, [isEdit, id, crews]);
@@ -73,7 +76,7 @@ export function CrewEditPage() {
     setSteps(steps.filter((_, i) => i !== idx));
   };
 
-  const updateStep = (idx: number, field: keyof WorkflowStep, value: unknown) => {
+  const updateStep = <K extends keyof WorkflowStep>(idx: number, field: K, value: WorkflowStep[K]) => {
     const updated = [...steps];
     updated[idx] = { ...updated[idx], [field]: value };
     setSteps(updated);
@@ -135,7 +138,7 @@ export function CrewEditPage() {
     if (isEdit && id) {
       await updateCrew(id, crewData);
     } else {
-      const newId = await createCrew(crewData as never);
+      const newId = await createCrew(crewData as Omit<Crew, "crew_id" | "created_at" | "updated_at" | "created_by">);
       if (newId) {
         navigate(`/swarm/crews/${newId}/edit`);
       }
@@ -157,6 +160,11 @@ export function CrewEditPage() {
         {isEdit ? t.crewEdit : t.crewAdd}
       </h1>
 
+      {notFound && (
+        <div className="mb-4 px-4 py-2 rounded-lg bg-accent-pink/10 text-accent-pink text-sm">
+          Crew not found
+        </div>
+      )}
       {validationError && (
         <div className="mb-4 px-4 py-2 rounded-lg bg-accent-pink/10 text-accent-pink text-sm">
           {validationError}
@@ -252,7 +260,7 @@ export function CrewEditPage() {
         </div>
 
         {steps.map((step, idx) => (
-          <div key={idx} className="bg-surface/40 border border-border-subtle rounded-lg p-4 mb-3">
+          <div key={step.id} className="bg-surface/40 border border-border-subtle rounded-lg p-4 mb-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-text-secondary font-mono">{step.id}</span>
               <button onClick={() => removeStep(idx)} className="text-xs text-accent-pink hover:underline">
