@@ -7,6 +7,8 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SwarmGuard } from "./components/SwarmGuard";
 import { SwarmOverviewPage } from "./pages/swarm/SwarmOverviewPage";
+import { CrewListPage } from "./pages/swarm/CrewListPage";
+import { CrewEditPage } from "./pages/swarm/CrewEditPage";
 import { setAdminKey } from "./lib/admin-api";
 import { useEffect } from "react";
 
@@ -32,6 +34,9 @@ function App() {
             }
           >
             <Route path="/swarm" element={<SwarmOverviewPage />} />
+            <Route path="/swarm/crews" element={<CrewListPage />} />
+            <Route path="/swarm/crews/new" element={<CrewEditPage />} />
+            <Route path="/swarm/crews/:id/edit" element={<CrewEditPage />} />
           </Route>
         </Route>
         <Route path="/login" element={<LoginPage />} />
