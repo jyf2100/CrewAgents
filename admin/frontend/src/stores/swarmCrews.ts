@@ -32,7 +32,7 @@ export interface Crew {
   created_by: string;
 }
 
-interface ExecutionResult {
+export interface ExecutionResult {
   exec_id: string;
   crew_id: string;
   status: string;
@@ -68,6 +68,7 @@ interface SwarmCrewsState {
   deleteCrew: (crewId: string) => Promise<boolean>;
   executeCrew: (crewId: string) => Promise<string | null>;
   pollExecution: (crewId: string, execId: string) => Promise<void>;
+  clearExecution: () => void;
 }
 
 export const useSwarmCrews = create<SwarmCrewsState>((set, get) => ({
@@ -157,5 +158,9 @@ export const useSwarmCrews = create<SwarmCrewsState>((set, get) => ({
     } catch {
       // Polling errors are non-critical
     }
+  },
+
+  clearExecution: () => {
+    set({ execution: null, executionCrewId: null, executionLoading: false });
   },
 }));

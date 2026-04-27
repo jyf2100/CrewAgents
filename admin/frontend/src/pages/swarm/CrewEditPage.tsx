@@ -1,25 +1,32 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useSwarmCrews, WorkflowStep, CrewAgent, Crew } from "../../stores/swarmCrews";
 import { useSwarmRegistry } from "../../stores/swarmRegistry";
 import { useI18n } from "../../hooks/useI18n";
+
+interface AgentEntry {
+  key: string;
+  data: CrewAgent;
+}
 
 export function CrewEditPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
-  const { crews, fetchCrews, createCrew, updateCrew } = useSwarmCrews();
+  const { crews, fetchCrews, createCrew, updateCrew, error: storeError } = useSwarmCrews();
   const { agents, fetchAgents } = useSwarmRegistry();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [workflowType, setWorkflowType] = useState<"sequential" | "parallel" | "dag">("sequential");
   const [workflowTimeout, setWorkflowTimeout] = useState(300);
-  const [crewAgents, setCrewAgents] = useState<CrewAgent[]>([]);
+  const [agentEntries, setAgentEntries] = useState<AgentEntry[]>([]);
+  const agentKeyRef = useRef(0);
   const [steps, setSteps] = useState<WorkflowStep[]>([
     { id: "step_1", required_capability: "", task_template: "", depends_on: [], input_from: {}, timeout_seconds: 120 },
   ]);
+  const stepIdRef = useRef(1);
   const [saving, setSaving] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -39,8 +46,14 @@ export function CrewEditPage() {
         setDescription(crew.description);
         setWorkflowType(crew.workflow.type);
         setWorkflowTimeout(crew.workflow.timeout_seconds);
-        setCrewAgents(crew.agents);
+        setAgentEntries(crew.agents.map((a, i) => ({ key: `agent_loaded_${i}`, data: a })));
         setSteps(crew.workflow.steps);
+        // Initialize stepIdRef from existing steps to avoid ID collisions
+        const maxNum = crew.workflow.steps.reduce((max, s) => {
+          const match = s.id.match(/step_(\d+)/);
+          return match ? Math.max(max, parseInt(match[1])) : max;
+        }, 0);
+        stepIdRef.current = maxNum;
       } else {
         setNotFound(true);
       }
@@ -48,22 +61,24 @@ export function CrewEditPage() {
   }, [isEdit, id, crews]);
 
   const addAgent = () => {
-    setCrewAgents([...crewAgents, { agent_id: 0, required_capability: "" }]);
+    const key = `agent_${agentKeyRef.current++}`;
+    setAgentEntries([...agentEntries, { key, data: { agent_id: 0, required_capability: "" } }]);
   };
 
   const removeAgent = (idx: number) => {
-    setCrewAgents(crewAgents.filter((_, i) => i !== idx));
+    setAgentEntries(agentEntries.filter((_, i) => i !== idx));
   };
 
   const updateAgent = (idx: number, field: keyof CrewAgent, value: string | number) => {
-    const updated = [...crewAgents];
-    updated[idx] = { ...updated[idx], [field]: value };
-    setCrewAgents(updated);
+    const updated = [...agentEntries];
+    updated[idx] = { ...updated[idx], data: { ...updated[idx].data, [field]: value } };
+    setAgentEntries(updated);
   };
 
   const addStep = () => {
+    stepIdRef.current += 1;
     setSteps([...steps, {
-      id: `step_${steps.length + 1}`,
+      id: `step_${stepIdRef.current}`,
       required_capability: "",
       task_template: "",
       depends_on: [],
@@ -123,6 +138,7 @@ export function CrewEditPage() {
   };
 
   const handleSave = async () => {
+    const crewAgents = agentEntries.map((e) => e.data);
     const err = validate();
     if (err) { setValidationError(err); return; }
     setValidationError(null);
@@ -200,10 +216,10 @@ export function CrewEditPage() {
             {t.crewAddAgent}
           </button>
         </div>
-        {crewAgents.map((agent, idx) => (
-          <div key={idx} className="flex items-center gap-3 mb-2">
+        {agentEntries.map((entry, idx) => (
+          <div key={entry.key} className="flex items-center gap-3 mb-2">
             <select
-              value={agent.agent_id}
+              value={entry.data.agent_id}
               onChange={(e) => updateAgent(idx, "agent_id", Number(e.target.value))}
               className="flex-1 px-3 py-2 bg-surface border border-border-subtle rounded-lg text-text-primary text-sm"
               aria-label={t.crewAgentId}
@@ -216,7 +232,7 @@ export function CrewEditPage() {
               ))}
             </select>
             <input
-              value={agent.required_capability}
+              value={entry.data.required_capability}
               onChange={(e) => updateAgent(idx, "required_capability", e.target.value)}
               placeholder={t.crewAgentCapability}
               className="flex-1 px-3 py-2 bg-surface border border-border-subtle rounded-lg text-text-primary text-sm"
@@ -321,6 +337,10 @@ export function CrewEditPage() {
           {t.crewCancel}
         </button>
       </div>
+
+      {storeError && (
+        <div className="text-red-400 text-sm mt-2">{storeError}</div>
+      )}
     </div>
   );
 }

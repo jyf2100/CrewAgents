@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSwarmCrews } from "../../stores/swarmCrews";
 import { useSwarmRegistry } from "../../stores/swarmRegistry";
@@ -18,8 +18,7 @@ export function CrewListPage() {
   const { crews, loading, error, fetchCrews, deleteCrew, executeCrew, pollExecution, execution, executionCrewId, executionLoading } =
     useSwarmCrews();
   const { agents, fetchAgents } = useSwarmRegistry();
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollCountRef = useRef(0);
+  const [pollTimedOut, setPollTimedOut] = useState(false);
 
   useEffect(() => {
     fetchCrews();
@@ -27,25 +26,25 @@ export function CrewListPage() {
   }, [fetchCrews, fetchAgents]);
 
   useEffect(() => {
-    if (executionCrewId && execution?.status === "running") {
-      if (pollCountRef.current >= MAX_POLL_COUNT) {
-        // Timeout — stop polling
+    if (execution?.status !== "running") {
+      return;
+    }
+
+    let tickCount = 0;
+    setPollTimedOut(false);
+
+    const interval = setInterval(async () => {
+      tickCount++;
+      if (tickCount >= MAX_POLL_COUNT) {
+        setPollTimedOut(true);
+        clearInterval(interval);
         return;
       }
-      pollCountRef.current += 1;
-      pollRef.current = setInterval(() => {
-        if (executionCrewId && execution?.exec_id) {
-          pollExecution(executionCrewId, execution.exec_id);
-        }
-      }, 3000);
-      return () => { if (pollRef.current) clearInterval(pollRef.current); };
-    }
-    if (pollRef.current && execution?.status !== "running") {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-      pollCountRef.current = 0;
-    }
-  }, [executionCrewId, execution?.status, execution?.exec_id, pollExecution]);
+      await pollExecution(executionCrewId!, execution!.exec_id);
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [execution?.status, execution?.exec_id, executionCrewId, pollExecution]);
 
   const handleDelete = async (crewId: string, name: string) => {
     if (!confirm(`${t.crewDeleteConfirm}\n${name}`)) return;
@@ -54,7 +53,6 @@ export function CrewListPage() {
 
   const handleExecute = async (crewId: string) => {
     if (!confirm(t.crewExecuteConfirm)) return;
-    pollCountRef.current = 0;
     const execId = await executeCrew(crewId);
     if (execId) {
       await pollExecution(crewId, execId);
@@ -92,7 +90,7 @@ export function CrewListPage() {
                execution.status === "failed" ? t.crewExecutionFailed :
                execution.status === "running" ? t.crewExecutionRunning : t.crewExecutionPending}
             </span>
-            {pollCountRef.current >= MAX_POLL_COUNT && execution.status === "running" && (
+            {pollTimedOut && execution.status === "running" && (
               <span className="text-amber-400 text-xs ml-2">— timeout, check back later</span>
             )}
           </div>
