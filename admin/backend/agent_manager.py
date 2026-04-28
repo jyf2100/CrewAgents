@@ -475,16 +475,26 @@ class AgentManager:
                 agent_number=agent_id, success=False,
                 error="API key not found in K8s secret")
 
+        # Read the agent's configured model for a realistic test
+        model = "test"
+        try:
+            cfg = self._config_mgr.read_config(agent_id)
+            parsed = yaml.safe_load(cfg.content)
+            if isinstance(parsed, dict):
+                model = parsed.get("model", {}).get("default", "test") or "test"
+        except Exception:
+            pass
+
         url = f"{api_url.rstrip('/')}/v1/chat/completions"
         payload = {
-            "model": "test",
+            "model": model,
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 1,
             "stream": False,
         }
         start = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
+            async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
                     url,
                     json=payload,
@@ -495,6 +505,16 @@ class AgentManager:
                 )
                 latency_ms = round((time.monotonic() - start) * 1000, 1)
                 if resp.status_code in (200, 201):
+                    # Gateway may wrap LLM errors as HTTP 200 with error in content
+                    body = resp.text
+                    error_patterns = ["Error code:", "Authentication Error", "token_not_found"]
+                    for pattern in error_patterns:
+                        if pattern in body:
+                            safe_error = re.sub(r'Bearer\s+\S+', 'Bearer ***', body[:300])
+                            return TestAgentApiResponse(
+                                agent_number=agent_id, success=False,
+                                status_code=resp.status_code, latency_ms=latency_ms,
+                                error=f"LLM error (HTTP 200 wrapped): {safe_error}")
                     return TestAgentApiResponse(
                         agent_number=agent_id, success=True,
                         status_code=resp.status_code, latency_ms=latency_ms,
