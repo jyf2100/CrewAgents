@@ -191,6 +191,8 @@ def _save_credentials(
     os.makedirs(accounts_dir, exist_ok=True)
     # Restrict directory permissions -- contains auth tokens
     os.chmod(accounts_dir, 0o750)
+    # Fix ownership so gateway (uid 10000) can read/write
+    os.chown(accounts_dir, 10000, 10000)
     account_file = os.path.join(accounts_dir, f"{account_id}.json")
     payload = {
         "account_id": account_id,
@@ -205,6 +207,7 @@ def _save_credentials(
     os.replace(tmp_path, account_file)
     try:
         os.chmod(account_file, 0o640)
+        os.chown(account_file, 10000, 10000)
     except OSError:
         pass
 
