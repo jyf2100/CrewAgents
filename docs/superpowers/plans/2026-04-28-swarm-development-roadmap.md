@@ -13,9 +13,9 @@
 | Phase 3a | Crew CRUD + Workflow | Phase 3 内 | 2026-04-27 | ✅ 已完成（提前） |
 | Phase 3b | Crew Execution + E2E | Phase 3 内 | 2026-04-28 | ✅ 已完成 |
 | — | E2E 测试覆盖 | 持续 | 2026-04-28 | ✅ 已完成 |
-| — | K8s 部署持久化 | 持续 | 2026-04-28 | ⚠️ 部分完成 |
+| — | K8s 部署持久化 | 持续 | 2026-04-28 | ✅ 已完成 |
 | Phase 2 | 任务监控 | Phase 2 | — | 🔲 未开始 |
-| Phase 3c | 知识库 | Phase 3 | — | 🔲 未开始 |
+| Phase 3c | 知识库（集成 Ultron） | Phase 3 | — | 🔲 未开始 |
 | Phase 4 | 弹性与优化 | Phase 4 | — | 🔲 未开始 |
 
 ---
@@ -101,18 +101,17 @@
 
 ---
 
-## ⚠️ 待处理：K8s 部署持久化
+## ✅ K8s 部署持久化（已于 2026-04-28 完成）
 
-以下配置只存在于 etcd，未持久化到 YAML 文件：
-
-| 项目 | 问题 | 优先级 |
-|------|------|--------|
-| `hermes-ingress` | 4 条路径规则无 YAML 文件 | P0 |
-| `hermes-webui-ingress` | WebUI 根路径无 YAML 文件 | P0 |
-| `hermes-webui` Service | YAML 仍是 ClusterIP:8080，实际为 NodePort:48080 | P0 |
-| `kubernetes/admin/` | Admin deployment/service YAML 不在仓库 | P1 |
-| WebUI PVC | 无持久化存储，重启丢数据 | P1 |
-| Agent 删除同步 Ingress | 删除 agent 不清理 Ingress 路径 | P2 |
+| 项目 | 状态 | YAML 文件 |
+|------|------|-----------|
+| `hermes-ingress` | ✅ | `kubernetes/admin/ingress.yaml` |
+| `hermes-webui-ingress` | ✅ | `kubernetes/webui/ingress.yaml` |
+| `hermes-webui` Service | ✅ | `kubernetes/webui/service.yaml` (NodePort:8080→48080) |
+| `kubernetes/admin/` | ✅ | `deployment.yaml` + `service.yaml` + `ingress.yaml` |
+| `hermes-gateway-1` Service | ✅ | `kubernetes/gateway/service.yaml` |
+| WebUI PVC | 🔲 | 无持久化存储，重启丢数据 |
+| Agent 删除同步 Ingress | 🔲 | 删除 agent 不清理 Ingress 路径 |
 
 ---
 
@@ -139,22 +138,65 @@
 
 ---
 
-## 🔲 Phase 3c: 知识库（未开始）
+## 🔲 Phase 3c: 知识库（集成 Ultron，未开始）
 
-**预估**: 3 周
+**预估**: 2 周（大幅缩短，直接集成 Ultron SDK）
 **前置依赖**: Phase 1 ✅
+**参考**: `docs/ultron-research.md`、[Ultron GitHub](https://github.com/modelscope/ultron)
 
-### 计划交付物
-- [ ] 共享记忆层（Redis → Qdrant 向量库）
-- [ ] 知识库 CRUD API
-- [ ] 知识搜索（向量相似度 + 关键词）
-- [ ] Admin Panel 知识库页面（`/swarm/knowledge`）
-- [ ] Agent 间知识共享协议
+### 策略变更说明
+
+~~原计划从零构建知识库（Redis → Qdrant 向量库）~~。经研究 Ultron 后决定**直接集成 Ultron SDK**，而非重新实现。Ultron 提供：
+
+- **Memory Hub**: 分层存储（HOT/WARM/COLD）+ 语义搜索 + PII 脱敏 + 时间衰减
+- **Skill Hub**: 经验蒸馏为可复用技能 + 82K+ ModelScope 技能市场
+- **Harness Hub**: Agent 蓝图发布与共享
+- **存储**: SQLite（零运维），无需额外向量数据库
+- **Embedding**: DashScope `text-embedding-v4` 或本地 `sentence-transformers`
+
+### Ultron 集成方式
+
+```python
+from ultron import Ultron, UltronConfig
+
+# 最小配置 — 复用 Hermes 的 LLM endpoint
+config = UltronConfig(
+    embedding_backend="dashscope",
+    llm_base_url="http://hermes-gateway:8642/v1",
+    llm_model="qwen-plus"
+)
+ultron = Ultron(config=config)
+```
+
+安装: `pip install git+https://github.com/modelscope/ultron.git`
+
+### 交付物
+
+- [ ] Ultron SDK 集成（依赖安装 + 配置初始化）
+- [ ] Admin 后端 Ultron 代理 API（转发 Memory/Skill/Harness 请求）
+- [ ] Agent Loop 集成钩子（context compression → 写入 Memory Hub）
+- [ ] Agent 启动钩子（新会话 → 检索相关记忆注入 system prompt）
+- [ ] Admin Panel 知识库页面（`/swarm/knowledge`，替代 ComingSoon）
+  - 记忆列表（按层级/权重排序）
+  - 语义搜索
+  - 技能库浏览
 - [ ] E2E 测试覆盖
 
 ### 关键文件（计划）
+- `admin/backend/ultron_routes.py` — Ultron 代理 API
+- `admin/backend/ultron_config.py` — Ultron 配置管理
 - `admin/frontend/src/pages/swarm/KnowledgeBasePage.tsx`
-- `hermes_agent/swarm/knowledge.py`
+- `admin/frontend/src/stores/swarmKnowledge.ts`
+
+### 与 Hermes 现有系统的对接
+
+| Ultron API | Hermes 对接点 |
+|------------|-------------|
+| `upload_memory()` | Agent Loop context compression 完成后调用 |
+| `search_memories()` | 新会话启动时，语义检索注入 system prompt |
+| `search_skills()` | 工具注册时，搜索相关技能 |
+| `upload_skills()` | 经验蒸馏后的技能发布 |
+| `harness_sync_up()` | Admin Panel 创建/更新 agent 时同步蓝图 |
 
 ---
 
@@ -180,12 +222,12 @@
 | Agent 删除不同步 Ingress | 孤立路由 | 需在 admin backend delete 逻辑中修复 |
 | WebUI 无 PVC | 重启丢数据 | 需添加持久化存储 |
 | Playwright 版本兼容性 | CI 不稳定 | 当前固定 1.59.1，运行正常 |
+| Ultron SDK 稳定性 | 依赖风险 | 可 fork 锁定版本；API 简单，必要时自行实现 |
 
 ---
 
 ## 下一步建议
 
-1. **P0 — 配置持久化**: 将 Ingress/Service YAML 保存到仓库（1-2 小时）
-2. **P0 — 提交当前工作**: 品牌更新 + E2E 测试 + ComingSoon 页面（本会话未提交）
-3. **P1 — WebUI PVC**: 添加持久化存储
-4. **Phase 2 开始**: 任务监控页面开发
+1. **P1 — WebUI PVC**: 添加持久化存储
+2. **Phase 3c — Ultron 集成**: 安装 Ultron SDK，搭建 admin 代理 API，替换 ComingSoon 页面
+3. **Phase 2 — 任务监控**: 任务追踪页面开发
