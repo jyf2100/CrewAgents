@@ -4,9 +4,10 @@ metadata:
   name: hermes-webui
   namespace: hermes-agent
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
     - port: 8080
-      targetPort: 8080
+      targetPort: 48080
+      nodePort: 30480
   selector:
     app: hermes-webui

@@ -1,0 +1,48 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hermes-ingress
+  namespace: hermes-agent
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          # API routes — rewrite /admin/api/foo → /foo
+          - path: /admin/api(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes-admin
+                port:
+                  number: 48082
+          # Static assets — no rewrite
+          - path: /admin/assets/
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes-admin
+                port:
+                  number: 48082
+          # SPA fallback — rewrite /admin/xxx → /xxx
+          - path: /admin(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes-admin
+                port:
+                  number: 48082
+          # Gateway proxy — rewrite /agent1/xxx → /xxx
+          - path: /agent1(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes-gateway-1
+                port:
+                  number: 8642
