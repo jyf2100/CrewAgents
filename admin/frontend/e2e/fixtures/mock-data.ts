@@ -247,6 +247,78 @@ export const mockTestLlmResponse = {
   response_preview: "Hello! How can I help?",
 };
 
+// -- Swarm Agents --
+export const mockSwarmAgents = [
+  {
+    agent_id: 1,
+    display_name: "Supervisor",
+    capabilities: ["supervision", "routing"],
+    status: "online",
+    current_tasks: 0,
+    max_concurrent_tasks: 5,
+    last_heartbeat: Date.now() / 1000,
+    model: "claude-sonnet",
+  },
+  {
+    agent_id: 2,
+    display_name: "Code Reviewer",
+    capabilities: ["code-review", "refactoring"],
+    status: "busy",
+    current_tasks: 2,
+    max_concurrent_tasks: 3,
+    last_heartbeat: Date.now() / 1000,
+    model: "claude-sonnet",
+  },
+  {
+    agent_id: 3,
+    display_name: "Translator",
+    capabilities: ["translation"],
+    status: "offline",
+    current_tasks: 0,
+    max_concurrent_tasks: 2,
+    last_heartbeat: Date.now() / 1000 - 300,
+    model: "gpt-4o",
+  },
+];
+
+// -- Swarm Metrics --
+export const mockSwarmMetrics = {
+  timestamp: Date.now() / 1000,
+  swarm_enabled: true,
+  agents: [],
+  agents_online: 1,
+  agents_offline: 1,
+  agents_busy: 1,
+  queues: {
+    streams: [{ name: "hermes:tasks", pending: 3 }],
+    total_pending: 3,
+  },
+  redis_health: {
+    connected: true,
+    latency_ms: 1.2,
+    memory_used_percent: 5.3,
+    connected_clients: 3,
+    uptime_seconds: 86400,
+    aof_enabled: true,
+    version: "7.2.0",
+  },
+  tasks_submitted_last_5m: 12,
+  tasks_completed_last_5m: 10,
+  tasks_failed_last_5m: 1,
+};
+
+export const mockSwarmMetricsNoQueue = {
+  ...mockSwarmMetrics,
+  queues: { streams: [], total_pending: 0 },
+};
+
+// -- SSE Token --
+export const mockSseToken = { token: "sse-one-time-token-abc" };
+
+// -- Swarm Capability --
+export const mockSwarmEnabled = { enabled: true };
+export const mockSwarmDisabled = { enabled: false };
+
 // -- Crew --
 export const mockCrews = {
   results: [
@@ -270,6 +342,29 @@ export const mockCrews = {
   total: 1,
 };
 
+export const mockEmptyCrews = { results: [], total: 0 };
+
+export const mockDagCrew = {
+  crew_id: "crew-dag",
+  name: "Pipeline Team",
+  description: "Multi-stage DAG pipeline",
+  agents: [
+    { agent_id: 1, required_capability: "analysis" },
+    { agent_id: 2, required_capability: "code-review" },
+  ],
+  workflow: {
+    type: "dag",
+    steps: [
+      { id: "step_1", required_capability: "analysis", task_template: "Analyze: {input}", depends_on: [], input_from: {}, timeout_seconds: 120 },
+      { id: "step_2", required_capability: "code-review", task_template: "Review: {step_1}", depends_on: ["step_1"], input_from: {}, timeout_seconds: 180 },
+    ],
+    timeout_seconds: 600,
+  },
+  created_at: 1745700200,
+  updated_at: 1745700200,
+  created_by: "admin",
+};
+
 export const mockCreatedCrew = {
   crew_id: "crew-new",
   name: "New Crew",
@@ -285,4 +380,48 @@ export const mockCreatedCrew = {
   created_at: 1745700100,
   updated_at: 1745700100,
   created_by: "admin",
+};
+
+// -- Crew Execution --
+export const mockExecutionPending = {
+  exec_id: "exec-1",
+  crew_id: "crew-1",
+  status: "pending",
+  started_at: Date.now() / 1000,
+  completed_at: null,
+  result: null,
+  error: null,
+};
+
+export const mockExecutionRunning = {
+  ...mockExecutionPending,
+  status: "running",
+};
+
+export const mockExecutionCompleted = {
+  exec_id: "exec-1",
+  crew_id: "crew-1",
+  status: "completed",
+  started_at: Date.now() / 1000 - 30,
+  completed_at: Date.now() / 1000,
+  result: { summary: "All steps completed successfully" },
+  error: null,
+};
+
+export const mockExecutionFailed = {
+  exec_id: "exec-1",
+  crew_id: "crew-1",
+  status: "failed",
+  started_at: Date.now() / 1000 - 10,
+  completed_at: Date.now() / 1000,
+  result: null,
+  error: "Step step_1 timed out after 120s",
+};
+
+export const mockExecutionConflict = {
+  detail: "Crew crew-1 is already executing",
+};
+
+export const mockExecutionRateLimit = {
+  detail: "Max concurrent workflows reached (4)",
 };

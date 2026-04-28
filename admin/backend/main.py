@@ -62,7 +62,7 @@ app = FastAPI(title="Hermes Admin API", openapi_url=None, docs_url=None)
 app.state.admin_key = ADMIN_KEY
 
 # Include swarm router
-app.include_router(swarm_router, prefix="/admin/api")
+app.include_router(swarm_router)
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ class _SpaFallbackMiddleware(BaseHTTPMiddleware):
     """
 
     # Paths that should always go to API (even from browser)
-    API_ONLY_PREFIXES = ("/health",)
+    API_ONLY_PREFIXES = ("/health", "/agents", "/cluster", "/settings", "/templates", "/swarm", "/login", "/update-key")
 
     async def dispatch(self, request: Request, call_next):
         accept = request.headers.get("accept", "")
@@ -103,8 +103,8 @@ class _SpaFallbackMiddleware(BaseHTTPMiddleware):
         if request.method != "GET" or "text/html" not in accept:
             return await call_next(request)
 
-        # Skip health endpoint (used by K8s probes)
-        if path in self.API_ONLY_PREFIXES or path.startswith("/admin/"):
+        # Skip API routes (K8s probes and all backend endpoints)
+        if any(path.startswith(p) for p in self.API_ONLY_PREFIXES) or path.startswith("/admin/"):
             return await call_next(request)
 
         # Try static assets first

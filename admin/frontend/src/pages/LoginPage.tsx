@@ -49,7 +49,7 @@ export function LoginPage() {
 
       <div className="glass-heavy rounded-xl border border-border p-10 max-w-sm w-full mx-4 relative z-10">
         <h1 className="font-[family-name:var(--font-display)] text-3xl font-bold tracking-[0.15em] text-text-primary glow-pink-text text-center mb-1">
-          HERMES
+          NEWHERMES
         </h1>
         <p className="font-[family-name:var(--font-body)] text-text-secondary text-sm text-center mb-8">
           {t.loginSubtitle}

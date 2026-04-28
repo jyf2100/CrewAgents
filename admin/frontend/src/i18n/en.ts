@@ -393,4 +393,6 @@ export const en: Translations = {
   crewValidationCycle: "Workflow has circular dependencies",
   crewValidationEmptySteps: "At least one step is required",
   crewValidationRequired: "This field is required",
+  comingSoon: "Coming Soon",
+  comingSoonDescription: "This feature is under development. Stay tuned!",
 };

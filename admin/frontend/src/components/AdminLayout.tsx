@@ -146,7 +146,7 @@ export function AdminLayout() {
         {/* Brand */}
         <div className="px-5 py-5 shrink-0">
           <h1 className="glow-pink-text font-[family-name:var(--font-display)] text-lg font-bold tracking-[0.15em] text-accent-pink">
-            HERMES
+            NEWHERMES
           </h1>
         </div>
 

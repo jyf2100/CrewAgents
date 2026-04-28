@@ -30,7 +30,9 @@ spec:
                   key: api_key
                   optional: true
             - name: WEBUI_AUTH
-              value: "false"
+              value: "true"
+            - name: WEBUI_REGISTRATION
+              value: "true"
             - name: PORT
               value: "48080"
           resources:

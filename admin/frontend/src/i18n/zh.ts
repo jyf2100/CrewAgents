@@ -369,6 +369,8 @@ export interface Translations {
   crewValidationCycle: string;
   crewValidationEmptySteps: string;
   crewValidationRequired: string;
+  comingSoon: string;
+  comingSoonDescription: string;
 }
 
 export const zh: Translations = {
@@ -764,4 +766,6 @@ export const zh: Translations = {
   crewValidationCycle: "工作流存在循环依赖",
   crewValidationEmptySteps: "至少需要一个步骤",
   crewValidationRequired: "此字段为必填",
+  comingSoon: "即将推出",
+  comingSoonDescription: "该功能正在开发中，敬请期待！",
 };

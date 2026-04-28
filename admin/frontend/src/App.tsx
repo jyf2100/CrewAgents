@@ -9,6 +9,7 @@ import { SwarmGuard } from "./components/SwarmGuard";
 import { SwarmOverviewPage } from "./pages/swarm/SwarmOverviewPage";
 import { CrewListPage } from "./pages/swarm/CrewListPage";
 import { CrewEditPage } from "./pages/swarm/CrewEditPage";
+import { ComingSoonPage } from "./pages/swarm/ComingSoonPage";
 import { setAdminKey } from "./lib/admin-api";
 import { useEffect } from "react";
 
@@ -34,6 +35,8 @@ function App() {
             }
           >
             <Route path="/swarm" element={<SwarmOverviewPage />} />
+            <Route path="/swarm/tasks" element={<ComingSoonPage title="Tasks" />} />
+            <Route path="/swarm/knowledge" element={<ComingSoonPage title="Knowledge" />} />
             <Route path="/swarm/crews" element={<CrewListPage />} />
             <Route path="/swarm/crews/new" element={<CrewEditPage />} />
             <Route path="/swarm/crews/:id/edit" element={<CrewEditPage />} />
