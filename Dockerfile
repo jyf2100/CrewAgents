@@ -13,7 +13,7 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debia
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential nodejs npm python3 python3-pip ripgrep ffmpeg gcc python3-dev libffi-dev git \
-        openssh-client curl cowsay boxes toilet toilet-fonts jp2a && \
+        openssh-client curl cowsay boxes toilet toilet-fonts jp2a cron && \
     rm -rf /var/lib/apt/lists/*
 
 # Non-root user for runtime; UID can be overridden via HERMES_UID at runtime

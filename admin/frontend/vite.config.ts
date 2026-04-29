@@ -12,6 +12,7 @@ export default defineConfig({
         target: 'http://localhost:48082',
         rewrite: (path) => path.replace(/^\/admin/, ''),
         changeOrigin: true,
+        ws: true,
       },
     },
   },

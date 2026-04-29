@@ -118,6 +118,12 @@ export interface Translations {
   healthCheckNow: string;
   healthOk: string;
   healthError: string;
+  // Terminal Tab
+  terminal: string;
+  terminalConnected: string;
+  terminalDisconnected: string;
+  terminalConnecting: string;
+  terminalReconnect: string;
   // Create Wizard
   createTitle: string;
   createSubtitle: string;
@@ -371,6 +377,16 @@ export interface Translations {
   crewValidationRequired: string;
   comingSoon: string;
   comingSoonDescription: string;
+
+  // User Login
+  userLogin: string;
+  adminLogin: string;
+  userLoginHint: string;
+  apiKeyPlaceholder: string;
+  loginRateLimited: string;
+  invalidApiKey: string;
+  logout: string;
+  userMode: string;
 }
 
 export const zh: Translations = {
@@ -504,6 +520,13 @@ export const zh: Translations = {
   healthCheckNow: "立即检查",
   healthOk: "正常",
   healthError: "异常",
+
+  // Terminal Tab
+  terminal: "终端",
+  terminalConnected: "已连接",
+  terminalDisconnected: "已断开",
+  terminalConnecting: "连接中...",
+  terminalReconnect: "重新连接",
 
   // Create Wizard
   createTitle: "创建新 Agent",
@@ -768,4 +791,14 @@ export const zh: Translations = {
   crewValidationRequired: "此字段为必填",
   comingSoon: "即将推出",
   comingSoonDescription: "该功能正在开发中，敬请期待！",
+
+  // User Login
+  userLogin: "用户登录",
+  adminLogin: "管理员登录",
+  userLoginHint: "使用你 Agent 的 API Key 登录，管理你自己的 Agent",
+  apiKeyPlaceholder: "输入 API Key",
+  loginRateLimited: "尝试次数过多，请稍后再试",
+  invalidApiKey: "API Key 无效",
+  logout: "退出登录",
+  userMode: "用户模式",
 };

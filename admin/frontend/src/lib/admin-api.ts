@@ -2,7 +2,9 @@
  * Hermes Admin API Client
  *
  * TypeScript client for the Hermes Agent Admin API.
- * All requests include X-Admin-Key header for authentication.
+ * Supports two auth modes:
+ *   - Admin mode: X-Admin-Key header (existing flow)
+ *   - User mode: X-User-Token header (new flow)
  * On 401, clears stored credentials and redirects to login.
  */
 
@@ -21,8 +23,10 @@ export class AdminApiError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Key management
+// Auth mode helpers
 // ---------------------------------------------------------------------------
+
+export type AuthMode = "admin" | "user";
 
 const ADMIN_BASE = "/admin/api";
 
@@ -34,8 +38,34 @@ export function getAdminKey(): string {
   return localStorage.getItem("admin_api_key") || "";
 }
 
+export function getAuthMode(): AuthMode {
+  return (localStorage.getItem("admin_mode") as AuthMode) || "admin";
+}
+
+export function setAuthMode(mode: AuthMode): void {
+  localStorage.setItem("admin_mode", mode);
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const mode = getAuthMode();
+  if (mode === "user") {
+    const token = localStorage.getItem("admin_user_token") || "";
+    return { "X-User-Token": token };
+  }
+  const key = getAdminKey();
+  return { "X-Admin-Key": key };
+}
+
 function clearAuth(): void {
-  localStorage.removeItem("admin_api_key");
+  const mode = getAuthMode();
+  if (mode === "user") {
+    localStorage.removeItem("admin_user_token");
+    localStorage.removeItem("admin_user_agent_id");
+    localStorage.removeItem("admin_user_display_name");
+  } else {
+    localStorage.removeItem("admin_api_key");
+  }
+  localStorage.removeItem("admin_mode");
   window.location.href = "/admin/login";
 }
 
@@ -50,7 +80,7 @@ export async function adminFetch<T>(
   const url = `${ADMIN_BASE}${path}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "X-Admin-Key": getAdminKey(),
+    ...getAuthHeaders(),
     ...(options.headers as Record<string, string> | undefined),
   };
 
@@ -354,6 +384,22 @@ export interface TestAgentApiResponse {
 }
 
 // ---------------------------------------------------------------------------
+// User Login response
+// ---------------------------------------------------------------------------
+
+export interface UserLoginResponse {
+  token: string;
+  agent_id: number;
+  display_name: string;
+  expires_in: number;
+}
+
+export interface UserMeResponse {
+  agent_id: number;
+  display_name: string;
+}
+
+// ---------------------------------------------------------------------------
 // API methods
 // ---------------------------------------------------------------------------
 
@@ -369,8 +415,64 @@ export const adminApi = {
     });
   },
 
+  async userLogin(apiKey: string): Promise<UserLoginResponse> {
+    return fetch(`${ADMIN_BASE}/user/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey }),
+    }).then(async (res) => {
+      if (res.status === 401) {
+        throw new AdminApiError(401, "Invalid API Key");
+      }
+      if (res.status === 429) {
+        throw new AdminApiError(429, "Too many attempts, please try again later");
+      }
+      if (!res.ok) {
+        let detail = `Request failed (${res.status})`;
+        try {
+          const body = await res.json();
+          if (typeof body.detail === "string") detail = body.detail;
+          else if (body.message) detail = body.message;
+        } catch {
+          // ignore JSON parse errors
+        }
+        throw new AdminApiError(res.status, detail);
+      }
+      return res.json();
+    });
+  },
+
+  async userLogout(): Promise<void> {
+    const mode = getAuthMode();
+    const token = localStorage.getItem("admin_user_token");
+    if (mode === "user" && token) {
+      try {
+        await fetch(`${ADMIN_BASE}/user/logout`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-User-Token": token },
+        });
+      } catch {
+        // Ignore errors on logout — best effort
+      }
+    }
+  },
+
+  getUserMe(): Promise<UserMeResponse> {
+    return adminFetch("/user/me");
+  },
+
   getLogsToken(agentId: number): Promise<LogsTokenResponse> {
     return adminFetch(`/agents/${agentId}/logs/token`);
+  },
+
+  // -- Terminal --
+  getTerminalToken(agentId: number): Promise<LogsTokenResponse> {
+    return adminFetch(`/agents/${agentId}/terminal/token`);
+  },
+
+  getTerminalWsUrl(agentId: number, token: string): string {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.host}/admin/api/agents/${agentId}/terminal/ws?token=${encodeURIComponent(token)}`;
   },
 
   // -- Agents --
@@ -533,9 +635,11 @@ export const adminApi = {
   },
 
   startWeixinQR(agentId: number): string {
-    // EventSource cannot set custom headers, so pass admin key as query param
-    const key = getAdminKey();
-    return `${ADMIN_BASE}/agents/${agentId}/weixin/qr?key=${encodeURIComponent(key)}`;
+    // EventSource cannot set custom headers, so pass auth as query param
+    const authHeaders = getAuthHeaders();
+    const authKey = authHeaders["X-Admin-Key"] || authHeaders["X-User-Token"] || "";
+    const authParam = authHeaders["X-User-Token"] ? "token" : "key";
+    return `${ADMIN_BASE}/agents/${agentId}/weixin/qr?${authParam}=${encodeURIComponent(authKey)}`;
   },
 
   unbindWeixin(agentId: number): Promise<WeixinAction> {

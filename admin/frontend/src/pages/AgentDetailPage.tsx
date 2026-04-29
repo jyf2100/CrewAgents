@@ -6,7 +6,7 @@ import type {
   HealthResponse,
   K8sEvent,
 } from "../lib/admin-api";
-import { adminApi, AdminApiError } from "../lib/admin-api";
+import { adminApi, AdminApiError, getAuthMode } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
@@ -20,6 +20,7 @@ import {
 import { showToast } from "../lib/toast";
 import { WeChatCard } from "../components/WeChatCard";
 import { WeChatQRModal } from "../components/WeChatQRModal";
+import { TerminalTab } from "../components/TerminalTab";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,7 +51,7 @@ function logLineColor(line: string): string {
 // Tab definitions
 // ---------------------------------------------------------------------------
 
-const TAB_IDS = ["overview", "config", "logs", "events", "health"] as const;
+const TAB_IDS = ["overview", "config", "logs", "events", "health", "terminal"] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,7 @@ export function AgentDetailPage() {
 
   const agentId = parseAgentId(idParam ?? "");
   const activeTab = (searchParams.get("tab") as TabId) || "overview";
+  const isUser = getAuthMode() === "user";
 
   function setTab(tab: TabId) {
     setSearchParams({ tab }, { replace: true });
@@ -231,6 +233,7 @@ export function AgentDetailPage() {
             }
             disabled={actionLoading !== null}
             className="h-9 px-4 text-sm rounded bg-accent-pink text-white hover:bg-accent-pink/90 disabled:opacity-50"
+            style={isUser ? { display: "none" } : undefined}
           >
             {actionLoading === t.delete ? "..." : t.delete}
           </button>
@@ -269,6 +272,10 @@ export function AgentDetailPage() {
       )}
       {activeTab === "health" && (
         <HealthTab agentId={agentId} />
+      )}
+
+      {activeTab === "terminal" && (
+        <TerminalTab agentId={agentId} />
       )}
 
       {/* WeChat QR Modal */}

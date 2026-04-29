@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AgentListItem, ClusterStatus } from "../lib/admin-api";
-import { adminApi } from "../lib/admin-api";
+import { adminApi, getAuthMode } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import { ClusterStatusBar } from "../components/ClusterStatusBar";
 import { AgentCard } from "../components/AgentCard";
@@ -12,6 +12,7 @@ import { ErrorDisplay } from "../components/ErrorDisplay";
 export function DashboardPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const isUser = getAuthMode() === "user";
 
   const [agents, setAgents] = useState<AgentListItem[]>([]);
   const [cluster, setCluster] = useState<ClusterStatus | null>(null);
@@ -20,17 +21,20 @@ export function DashboardPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [agentsRes, clusterRes] = await Promise.all([
-        adminApi.listAgents(),
-        adminApi.getClusterStatus(),
-      ]);
+      const agentsRes = await adminApi.listAgents();
       // Sort agents by status priority: failed > starting > stopped > running > unknown
       const sorted = [...agentsRes.agents].sort(
         (a, b) => statusOrder(a.status) - statusOrder(b.status)
       );
       setAgents(sorted);
-      setCluster(clusterRes);
       setError(null);
+      // Cluster status is admin-only
+      if (!isUser) {
+        try {
+          const clusterRes = await adminApi.getClusterStatus();
+          setCluster(clusterRes);
+        } catch { /* non-critical */ }
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : t.errorLoadFailed
@@ -38,7 +42,7 @@ export function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, isUser]);
 
   // Initial load + auto-refresh every 10 seconds
   useEffect(() => {
@@ -93,12 +97,14 @@ export function DashboardPage() {
           </h1>
           <p className="text-sm text-text-secondary">{t.dashboardSubtitle}</p>
         </div>
-        <button
-          onClick={() => navigate("/create")}
-          className="h-9 px-4 text-sm rounded-lg bg-accent-pink text-text-primary hover:shadow-[0_0_20px_rgba(255,42,109,0.3)] transition-all"
-        >
-          + {t.createAgent}
-        </button>
+        {!isUser && (
+          <button
+            onClick={() => navigate("/create")}
+            className="h-9 px-4 text-sm rounded-lg bg-accent-pink text-text-primary hover:shadow-[0_0_20px_rgba(255,42,109,0.3)] transition-all"
+          >
+            + {t.createAgent}
+          </button>
+        )}
       </div>
 
       {/* Stats row */}
@@ -131,14 +137,16 @@ export function DashboardPage() {
 
       {/* Agent grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {/* "+ New Agent" card */}
-        <button
-          onClick={() => navigate("/create")}
-          className="rounded-lg border-2 border-dashed border-border hover:border-accent-cyan/50 bg-surface/30 p-4 flex flex-col items-center justify-center gap-2 min-h-[180px] transition-all hover:shadow-[0_0_20px_rgba(5,217,232,0.1)]"
-        >
-          <span className="text-3xl text-accent-cyan">+</span>
-          <span className="text-sm text-text-secondary">{t.createAgent}</span>
-        </button>
+        {/* "+ New Agent" card -- admin only */}
+        {!isUser && (
+          <button
+            onClick={() => navigate("/create")}
+            className="rounded-lg border-2 border-dashed border-border hover:border-accent-cyan/50 bg-surface/30 p-4 flex flex-col items-center justify-center gap-2 min-h-[180px] transition-all hover:shadow-[0_0_20px_rgba(5,217,232,0.1)]"
+          >
+            <span className="text-3xl text-accent-cyan">+</span>
+            <span className="text-sm text-text-secondary">{t.createAgent}</span>
+          </button>
+        )}
 
         {/* Agent cards */}
         {agents.map((agent) => (
@@ -169,12 +177,14 @@ export function DashboardPage() {
           </svg>
           <p className="text-lg font-medium text-text-secondary">{t.noAgents}</p>
           <p className="text-sm text-text-secondary">{t.noAgentsDesc}</p>
-          <button
-            onClick={() => navigate("/create")}
-            className="mt-2 text-sm text-accent-cyan hover:underline"
-          >
-            {t.createAgent}
-          </button>
+          {!isUser && (
+            <button
+              onClick={() => navigate("/create")}
+              className="mt-2 text-sm text-accent-cyan hover:underline"
+            >
+              {t.createAgent}
+            </button>
+          )}
         </div>
       )}
     </div>

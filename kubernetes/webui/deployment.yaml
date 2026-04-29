@@ -4,41 +4,58 @@ metadata:
   name: hermes-webui
   namespace: hermes-agent
 spec:
+  progressDeadlineSeconds: 600
   replicas: 1
   selector:
     matchLabels:
       app: hermes-webui
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
         app: hermes-webui
     spec:
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      volumes:
+      - name: webui-data
+        hostPath:
+          path: /data/hermes/webui
+          type: DirectoryOrCreate
       containers:
-        - name: webui
-          image: ghcr.io/open-webui/open-webui:main
-          ports:
-            - containerPort: 48080
-          env:
-            - name: OPENAI_API_BASE_URL
-              value: "http://hermes-gateway:8642/v1"
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: hermes-db-secret
-                  key: api_key
-                  optional: true
-            - name: WEBUI_AUTH
-              value: "true"
-            - name: WEBUI_REGISTRATION
-              value: "true"
-            - name: PORT
-              value: "48080"
-          resources:
-            requests:
-              cpu: 100m
-              memory: 512Mi
-            limits:
-              cpu: 1000m
-              memory: 2Gi
+      - env:
+        - name: OPENAI_API_BASE_URL
+          value: http://hermes-gateway-1:8642/v1
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: api_key
+              name: hermes-gateway-1-secret
+        - name: WEBUI_AUTH
+          value: 'true'
+        - name: PORT
+          value: '48080'
+        - name: RAG_EMBEDDING_MODEL_AUTO_UPDATE
+          value: 'False'
+        volumeMounts:
+        - name: webui-data
+          mountPath: /app/backend/data
+        image: open-webui:nl-v0.9.2-nh
+        imagePullPolicy: IfNotPresent
+        name: webui
+        ports:
+        - containerPort: 48080
+          protocol: TCP
+        resources:
+          limits:
+            cpu: '1'
+            memory: 2Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+

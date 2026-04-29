@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AgentListItem } from "../lib/admin-api";
-import { adminApi, getAdminKey } from "../lib/admin-api";
+import { adminApi, getAuthHeaders, getAuthMode } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import {
   formatBytes,
@@ -41,6 +41,7 @@ interface AgentCardProps {
 export function AgentCard({ agent, onActionDone }: AgentCardProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const isUser = getAuthMode() === "user";
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -102,7 +103,7 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
       const resp = await adminApi.backupAgent(agent.id);
       // Download via fetch with header auth (avoids key in URL)
       const downloadRes = await fetch(resp.download_url, {
-        headers: { "X-Admin-Key": getAdminKey() },
+        headers: getAuthHeaders(),
       });
       if (!downloadRes.ok) throw new Error("Download failed");
       const blob = await downloadRes.blob();
@@ -276,16 +277,18 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
                 {t.backup}
               </button>
               <hr className="my-1 border-border" />
-              <button
-                className="w-full text-left px-3 py-1.5 hover:bg-surface text-accent-pink disabled:opacity-50"
-                disabled={actionLoading}
-                onClick={() => {
-                  setMenuOpen(false);
-                  setConfirmDelete(true);
-                }}
-              >
-                {t.delete}
-              </button>
+              {!isUser && (
+                <button
+                  className="w-full text-left px-3 py-1.5 hover:bg-surface text-accent-pink disabled:opacity-50"
+                  disabled={actionLoading}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setConfirmDelete(true);
+                  }}
+                >
+                  {t.delete}
+                </button>
+              )}
             </div>
           </details>
         </div>

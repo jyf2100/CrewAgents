@@ -127,6 +127,15 @@ class K8sClient:
             name=name, namespace=self.namespace, body=body,
         )
 
+    async def list_agent_secrets(self) -> list:
+        """List all hermes-gateway secret objects."""
+        all_secrets = await self._k8s_call(
+            self.core_api.list_namespaced_secret,
+            namespace=self.namespace,
+        )
+        return [s for s in all_secrets.items
+                if s.metadata.name.startswith("hermes-gateway") and s.metadata.name.endswith("-secret")]
+
     # Pods
     async def get_pods_for_deployment(self, deployment_name: str) -> list[V1Pod]:
         dep = await self.get_deployment(deployment_name)
@@ -283,3 +292,25 @@ class K8sClient:
             return result.get("items", [])
         except Exception:
             return []
+
+    # Exec into pod
+    async def exec_pod(self, pod_name: str, command: list[str] | None = None):
+        """Create an interactive exec stream into a pod. Returns a kubernetes WSClient."""
+        from kubernetes.stream import stream as k8s_stream
+        if command is None:
+            command = ["/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi"]
+        return await asyncio.wait_for(
+            asyncio.to_thread(
+                k8s_stream,
+                self.core_api.connect_get_namespaced_pod_exec,
+                name=pod_name,
+                namespace=self.namespace,
+                command=command,
+                stdin=True,
+                stdout=True,
+                stderr=True,
+                tty=True,
+                _preload_content=False,
+            ),
+            timeout=K8S_API_TIMEOUT,
+        )

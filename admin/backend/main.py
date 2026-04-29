@@ -39,6 +39,14 @@ from config_manager import ConfigManager
 from templates import TemplateGenerator
 from weixin import stream_weixin_qr, start_qr_session, end_qr_session, read_weixin_status, unbind_weixin
 from swarm_routes import router as swarm_router
+from terminal import router as terminal_router
+try:
+    from auth import auth as user_auth, get_effective_agent_id, cleanup_expired_user_tokens
+except ImportError:
+    # auth.py may not exist yet (created by parallel agent)
+    user_auth = None  # type: ignore[assignment]
+    get_effective_agent_id = None  # type: ignore[assignment]
+    cleanup_expired_user_tokens = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -63,6 +71,7 @@ app.state.admin_key = ADMIN_KEY
 
 # Include swarm router
 app.include_router(swarm_router)
+app.include_router(terminal_router)
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +102,7 @@ class _SpaFallbackMiddleware(BaseHTTPMiddleware):
     """
 
     # Paths that should always go to API (even from browser)
-    API_ONLY_PREFIXES = ("/health", "/agents", "/cluster", "/settings", "/templates", "/swarm", "/login", "/update-key")
+    API_ONLY_PREFIXES = ("/health", "/agents", "/cluster", "/settings", "/templates", "/swarm", "/login", "/update-key", "/user")
 
     async def dispatch(self, request: Request, call_next):
         accept = request.headers.get("accept", "")
@@ -141,7 +150,12 @@ async def verify_admin_key(
     x_admin_key: str = Header(..., alias="X-Admin-Key"),
     request: Request = None,
 ):
-    """Verify the request carries the correct admin key."""
+    """Verify the request carries the correct admin key.
+
+    .. deprecated::
+        Admin-key auth will be migrated to auth.py.  New endpoints should
+        use ``user_auth`` (from auth module) instead.
+    """
     admin_key = getattr(request.app.state, "admin_key", "")
     if not admin_key:
         # No key configured -- allow all requests (dev mode).
@@ -151,7 +165,26 @@ async def verify_admin_key(
     return True
 
 
-auth = Depends(verify_admin_key)
+auth = user_auth if user_auth is not None else Depends(verify_admin_key)
+
+
+def _aid(request: Request, agent_id: int) -> int:
+    """Resolve effective agent_id (user-mode safe)."""
+    return get_effective_agent_id(request, agent_id) if get_effective_agent_id is not None else agent_id
+
+
+def _admin_only(request: Request) -> None:
+    """Raise 403 if not admin mode."""
+    if hasattr(request.state, 'agent_id') and request.state.agent_id is not None:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
+async def _admin_only_dep(request: Request) -> None:
+    """Dependency version — runs before body parsing."""
+    _admin_only(request)
+
+
+admin_only = Depends(_admin_only_dep)
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +228,9 @@ async def _startup_cleanup():
         while True:
             await asyncio.sleep(60)
             _cleanup_expired_sse_tokens()
+            # Cleanup expired user tokens (auth module)
+            if cleanup_expired_user_tokens is not None:
+                cleanup_expired_user_tokens()
     asyncio.create_task(_sweep())
 
     # Swarm Redis init
@@ -232,13 +268,18 @@ def _verify_sse_token(agent_id: int, token: str) -> bool:
 
 @app.get(f"{API_PREFIX}/agents", response_model=AgentListResponse,
          dependencies=[auth], tags=["agents"])
-async def list_agents():
+async def list_agents(request: Request):
     """List all Hermes agent deployments."""
-    return await manager.list_agents()
+    result = await manager.list_agents()
+    # User mode: only show their own agent
+    user_aid = getattr(request.state, 'agent_id', None)
+    if user_aid is not None:
+        result.agents = [a for a in result.agents if a.id == user_aid]
+    return result
 
 
 @app.post(f"{API_PREFIX}/agents", response_model=CreateAgentResponse,
-          status_code=201, dependencies=[auth], tags=["agents"])
+          status_code=201, dependencies=[auth, admin_only], tags=["agents"])
 async def create_agent(req: CreateAgentRequest):
     """Create a new Hermes agent with full provisioning."""
     return await manager.create_agent(req)
@@ -246,13 +287,13 @@ async def create_agent(req: CreateAgentRequest):
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}", response_model=AgentDetailResponse,
          dependencies=[auth], tags=["agents"])
-async def get_agent_detail(agent_id: int):
+async def get_agent_detail(request: Request, agent_id: int):
     """Get detailed information about a specific agent."""
-    return await manager.get_agent_detail(agent_id)
+    return await manager.get_agent_detail(_aid(request, agent_id))
 
 
 @app.delete(f"{API_PREFIX}/agents/{{agent_id}}", response_model=MessageResponse,
-            dependencies=[auth], tags=["agents"])
+            dependencies=[auth, admin_only], tags=["agents"])
 async def delete_agent(agent_id: int, backup: bool = Query(True)):
     """Delete an agent deployment and optionally create a backup first."""
     return await manager.delete_agent(agent_id, backup=backup)
@@ -260,23 +301,23 @@ async def delete_agent(agent_id: int, backup: bool = Query(True)):
 
 @app.post(f"{API_PREFIX}/agents/{{agent_id}}/restart", response_model=ActionResponse,
           dependencies=[auth], tags=["agents"])
-async def restart_agent(agent_id: int):
+async def restart_agent(request: Request, agent_id: int):
     """Restart an agent by rolling update annotation."""
-    return await manager.restart_agent(agent_id)
+    return await manager.restart_agent(_aid(request, agent_id))
 
 
 @app.post(f"{API_PREFIX}/agents/{{agent_id}}/stop", response_model=ActionResponse,
           dependencies=[auth], tags=["agents"])
-async def stop_agent(agent_id: int):
+async def stop_agent(request: Request, agent_id: int):
     """Stop an agent by scaling to 0 replicas."""
-    return await manager.scale_agent(agent_id, replicas=0, action="stop")
+    return await manager.scale_agent(_aid(request, agent_id), replicas=0, action="stop")
 
 
 @app.post(f"{API_PREFIX}/agents/{{agent_id}}/start", response_model=ActionResponse,
           dependencies=[auth], tags=["agents"])
-async def start_agent(agent_id: int):
+async def start_agent(request: Request, agent_id: int):
     """Start an agent by scaling to 1 replica."""
-    return await manager.scale_agent(agent_id, replicas=1, action="start")
+    return await manager.scale_agent(_aid(request, agent_id), replicas=1, action="start")
 
 
 # ===================================================================
@@ -285,19 +326,20 @@ async def start_agent(agent_id: int):
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/config", response_model=ConfigYaml,
          dependencies=[auth], tags=["agents-config"])
-async def read_config(agent_id: int):
+async def read_config(request: Request, agent_id: int):
     """Read the config.yaml for an agent."""
-    return config_mgr.read_config(agent_id)
+    return config_mgr.read_config(_aid(request, agent_id))
 
 
 @app.put(f"{API_PREFIX}/agents/{{agent_id}}/config", response_model=MessageResponse,
          dependencies=[auth], tags=["agents-config"])
-async def write_config(agent_id: int, req: ConfigWriteRequest):
+async def write_config(request: Request, agent_id: int, req: ConfigWriteRequest):
     """Write the config.yaml for an agent. Optionally restart after write."""
-    config_mgr.write_config(agent_id, req.content)
+    aid = _aid(request, agent_id)
+    config_mgr.write_config(aid, req.content)
     if req.restart:
         try:
-            await manager.restart_agent(agent_id)
+            await manager.restart_agent(aid)
         except Exception:
             pass  # Config saved even if restart fails
     return MessageResponse(message="Config updated")
@@ -305,19 +347,20 @@ async def write_config(agent_id: int, req: ConfigWriteRequest):
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/env", response_model=EnvReadResponse,
          dependencies=[auth], tags=["agents-config"])
-async def read_env(agent_id: int):
+async def read_env(request: Request, agent_id: int):
     """Read the .env file for an agent (secrets masked)."""
-    return config_mgr.read_env(agent_id)
+    return config_mgr.read_env(_aid(request, agent_id))
 
 
 @app.put(f"{API_PREFIX}/agents/{{agent_id}}/env", response_model=MessageResponse,
          dependencies=[auth], tags=["agents-config"])
-async def write_env(agent_id: int, req: EnvWriteRequest):
+async def write_env(request: Request, agent_id: int, req: EnvWriteRequest):
     """Write environment variables for an agent. Optionally restart after write."""
-    config_mgr.write_env(agent_id, req.variables)
+    aid = _aid(request, agent_id)
+    config_mgr.write_env(aid, req.variables)
     if req.restart:
         try:
-            await manager.restart_agent(agent_id)
+            await manager.restart_agent(aid)
         except Exception:
             pass
     return MessageResponse(message="Environment updated")
@@ -325,16 +368,16 @@ async def write_env(agent_id: int, req: EnvWriteRequest):
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/soul", response_model=SoulMarkdown,
          dependencies=[auth], tags=["agents-config"])
-async def read_soul(agent_id: int):
+async def read_soul(request: Request, agent_id: int):
     """Read the SOUL.md for an agent."""
-    return config_mgr.read_soul(agent_id)
+    return config_mgr.read_soul(_aid(request, agent_id))
 
 
 @app.put(f"{API_PREFIX}/agents/{{agent_id}}/soul", response_model=MessageResponse,
          dependencies=[auth], tags=["agents-config"])
-async def write_soul(agent_id: int, req: SoulWriteRequest):
+async def write_soul(request: Request, agent_id: int, req: SoulWriteRequest):
     """Write the SOUL.md for an agent."""
-    config_mgr.write_soul(agent_id, req.content)
+    config_mgr.write_soul(_aid(request, agent_id), req.content)
     return MessageResponse(message="SOUL.md updated")
 
 
@@ -344,34 +387,37 @@ async def write_soul(agent_id: int, req: SoulWriteRequest):
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/health", response_model=HealthResponse,
          dependencies=[auth], tags=["agents-monitoring"])
-async def agent_health(agent_id: int):
+async def agent_health(request: Request, agent_id: int):
     """Proxy a health check to the agent's gateway service."""
-    return await manager.check_health(agent_id)
+    return await manager.check_health(_aid(request, agent_id))
 
 
 @app.post(f"{API_PREFIX}/agents/{{agent_id}}/test-api", response_model=TestAgentApiResponse,
           dependencies=[auth], tags=["agents-monitoring"])
-async def test_agent_api(agent_id: int):
+async def test_agent_api(request: Request, agent_id: int):
     """Test the agent's external API endpoint via ingress URL."""
-    return await manager.test_agent_api(agent_id)
+    return await manager.test_agent_api(_aid(request, agent_id))
 
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/logs/token",
          dependencies=[auth], tags=["agents-monitoring"])
-async def get_logs_token(agent_id: int):
+async def get_logs_token(request: Request, agent_id: int):
     """Issue a one-time SSE token for log streaming (EventSource cannot send headers)."""
+    # Resolve effective agent_id (supports user-mode scoped access)
+    effective_id = get_effective_agent_id(request, agent_id) if get_effective_agent_id is not None else agent_id
     token = _secrets.token_urlsafe(32)
     expires_at = time.time() + SSE_TOKEN_TTL
-    _sse_tokens[token] = (agent_id, expires_at)
+    _sse_tokens[token] = (effective_id, expires_at)
     return {"token": token, "expires_in": SSE_TOKEN_TTL}
 
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/logs", tags=["agents-monitoring"])
 async def stream_logs(request: Request, agent_id: int, token: Optional[str] = Query(None)):
     """SSE log stream for an agent. Accept ?token= as alternative auth for EventSource."""
+    aid = _aid(request, agent_id)
     # Authenticate: either SSE token or admin key header
     if token:
-        if not _verify_sse_token(agent_id, token):
+        if not _verify_sse_token(aid, token):
             raise HTTPException(status_code=401, detail="Invalid or expired SSE token")
     else:
         # Fall back to header-based auth (will be checked by middleware pattern)
@@ -379,7 +425,7 @@ async def stream_logs(request: Request, agent_id: int, token: Optional[str] = Qu
 
     async with _sse_semaphore:
         return StreamingResponse(
-            manager.stream_logs(agent_id, request=request, max_duration=SSE_MAX_DURATION),
+            manager.stream_logs(aid, request=request, max_duration=SSE_MAX_DURATION),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -391,13 +437,13 @@ async def stream_logs(request: Request, agent_id: int, token: Optional[str] = Qu
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/events", response_model=EventListResponse,
          dependencies=[auth], tags=["agents-monitoring"])
-async def agent_events(agent_id: int):
+async def agent_events(request: Request, agent_id: int):
     """Get recent Kubernetes events for an agent."""
-    return await manager.get_events(agent_id)
+    return await manager.get_events(_aid(request, agent_id))
 
 
 @app.post(f"{API_PREFIX}/agents/{{agent_id}}/api-key", response_model=AgentApiKeyResponse,
-          dependencies=[auth], tags=["agents-monitoring"])
+          dependencies=[auth, admin_only], tags=["agents-monitoring"])
 async def reveal_agent_api_key(agent_id: int, request: Request):
     """Reveal the full API key for an agent. Audit-logged."""
     logger.info("API key revealed for agent %d from %s", agent_id, request.client.host if request.client else "unknown")
@@ -410,9 +456,9 @@ async def reveal_agent_api_key(agent_id: int, request: Request):
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/resources",
          dependencies=[auth], tags=["agents-monitoring"])
-async def agent_resources(agent_id: int):
+async def agent_resources(request: Request, agent_id: int):
     """Get current resource usage (CPU/memory) for an agent."""
-    return await manager.get_resource_usage(agent_id)
+    return await manager.get_resource_usage(_aid(request, agent_id))
 
 
 # ===================================================================
@@ -421,13 +467,13 @@ async def agent_resources(agent_id: int):
 
 @app.post(f"{API_PREFIX}/agents/{{agent_id}}/backup", response_model=BackupResponse,
           dependencies=[auth], tags=["agents-ops"])
-async def create_backup(agent_id: int, req: BackupRequest = BackupRequest()):
+async def create_backup(request: Request, agent_id: int, req: BackupRequest = BackupRequest()):
     """Create a backup tarball for an agent."""
-    return await manager.backup_agent(agent_id, req)
+    return await manager.backup_agent(_aid(request, agent_id), req)
 
 
-@app.get(f"{API_PREFIX}/backups/{{filename}}", dependencies=[auth], tags=["agents-ops"])
-async def download_backup(filename: str):
+@app.get(f"{API_PREFIX}/backups/{{filename}}", dependencies=[auth, admin_only], tags=["agents-ops"])
+async def download_backup(request: Request, filename: str):
     """Download a previously created backup tarball."""
     if not re.match(r"^agent\d+-\d{8}-\d{6}\.tar\.gz$", filename):
         raise HTTPException(status_code=400, detail="Invalid backup filename")
@@ -482,28 +528,30 @@ async def weixin_qr_login(request: Request, agent_id: int, key: str = Query(...,
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/weixin/status",
          response_model=WeixinStatusResponse,
          dependencies=[auth], tags=["agents-weixin"])
-async def weixin_status(agent_id: int):
+async def weixin_status(request: Request, agent_id: int):
     """Get WeChat connection status for an agent."""
-    agent_dir = os.path.join(HERMES_DATA_ROOT, f"agent{agent_id}")
-    return read_weixin_status(agent_dir, agent_id)
+    aid = _aid(request, agent_id)
+    agent_dir = os.path.join(HERMES_DATA_ROOT, f"agent{aid}")
+    return read_weixin_status(agent_dir, aid)
 
 
 @app.delete(f"{API_PREFIX}/agents/{{agent_id}}/weixin/bind",
             response_model=WeixinActionResponse,
             dependencies=[auth], tags=["agents-weixin"])
-async def weixin_unbind(agent_id: int):
+async def weixin_unbind(request: Request, agent_id: int):
     """Unbind WeChat from an agent."""
-    agent_dir = os.path.join(HERMES_DATA_ROOT, f"agent{agent_id}")
-    unbind_weixin(agent_dir, agent_id)
+    aid = _aid(request, agent_id)
+    agent_dir = os.path.join(HERMES_DATA_ROOT, f"agent{aid}")
+    unbind_weixin(agent_dir, aid)
 
     # Restart agent to pick up the changes
     msg = "WeChat unbound and agent restarted"
     try:
-        await manager.restart_agent(agent_id)
+        await manager.restart_agent(aid)
     except Exception:
         msg = "WeChat unbound but agent restart failed"
 
-    return WeixinActionResponse(agent_number=agent_id, action="unbind", success=True, message=msg)
+    return WeixinActionResponse(agent_number=aid, action="unbind", success=True, message=msg)
 
 
 # ===================================================================
@@ -511,21 +559,21 @@ async def weixin_unbind(agent_id: int):
 # ===================================================================
 
 @app.get(f"{API_PREFIX}/cluster/status", response_model=ClusterStatusResponse,
-         dependencies=[auth], tags=["cluster"])
+         dependencies=[auth, admin_only], tags=["cluster"])
 async def cluster_status():
     """Get cluster node status and agent counts."""
     return await manager.get_cluster_status()
 
 
 @app.get(f"{API_PREFIX}/templates", response_model=TemplateResponse,
-         dependencies=[auth], tags=["templates"])
+         dependencies=[auth, admin_only], tags=["templates"])
 async def get_all_templates():
     """Get all template files."""
     return tpl.get_all()
 
 
 @app.get(f"{API_PREFIX}/templates/{{template_type}}", response_model=TemplateTypeResponse,
-         dependencies=[auth], tags=["templates"])
+         dependencies=[auth, admin_only], tags=["templates"])
 async def get_template(template_type: str):
     """Get a single template by type (deployment, env, config, soul)."""
     try:
@@ -536,7 +584,7 @@ async def get_template(template_type: str):
 
 
 @app.put(f"{API_PREFIX}/templates/{{template_type}}", response_model=MessageResponse,
-         dependencies=[auth], tags=["templates"])
+         dependencies=[auth, admin_only], tags=["templates"])
 async def update_template(template_type: str, req: UpdateTemplateRequest):
     """Update a template file."""
     try:
@@ -551,7 +599,7 @@ async def update_template(template_type: str, req: UpdateTemplateRequest):
 # ===================================================================
 
 @app.get(f"{API_PREFIX}/settings", response_model=SettingsResponse,
-         dependencies=[auth], tags=["settings"])
+         dependencies=[auth, admin_only], tags=["settings"])
 async def get_settings(request: Request):
     """Get current admin settings."""
     admin_key = request.app.state.admin_key
@@ -565,7 +613,7 @@ async def get_settings(request: Request):
 
 
 @app.put(f"{API_PREFIX}/settings", response_model=MessageResponse,
-         dependencies=[auth], tags=["settings"])
+         dependencies=[auth, admin_only], tags=["settings"])
 async def update_settings(req: UpdateResourceLimitsRequest):
     """Update default resource limits for new agents."""
     manager.set_default_resource_limits(req.default_resources)
@@ -573,7 +621,7 @@ async def update_settings(req: UpdateResourceLimitsRequest):
 
 
 @app.put(f"{API_PREFIX}/settings/admin-key", response_model=MessageResponse,
-         dependencies=[auth], tags=["settings"])
+         dependencies=[auth, admin_only], tags=["settings"])
 async def update_admin_key(request: Request, req: UpdateAdminKeyRequest):
     """Change the admin API key. Persists to K8s Secret with file fallback."""
     global ADMIN_KEY
@@ -615,6 +663,87 @@ async def update_admin_key(request: Request, req: UpdateAdminKeyRequest):
 async def test_llm_connection(req: TestLLMRequest):
     """Test an LLM API key by making a minimal chat completion request."""
     return await manager.test_llm(req)
+
+
+# ===================================================================
+# User Authentication (login / logout / me)
+# ===================================================================
+
+@app.post(f"{API_PREFIX}/user/login", tags=["user"])
+async def user_login(request: Request, body: dict):
+    """User login with agent API key."""
+    if user_auth is None:
+        raise HTTPException(status_code=501, detail="User auth module not loaded")
+
+    api_key = body.get("api_key", "")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API key is required")
+
+    # --- rate limiting ---
+    from auth import check_login_rate, find_agent_by_api_key, mint_user_token
+
+    client_ip = request.client.host if request.client else "unknown"
+    if check_login_rate(client_ip):
+        logger.warning("Login rate limited for IP: %s", client_ip)
+        raise HTTPException(status_code=429, detail="Too many login attempts, please try again later")
+
+    # --- find agent by API key ---
+    agent_id = await find_agent_by_api_key(api_key)
+    if agent_id is None:
+        logger.info("Login failed for IP %s: no matching agent", client_ip)
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # --- mint user token ---
+    token = mint_user_token(agent_id, api_key)
+
+    # --- resolve display name ---
+    display_name = f"Agent #{agent_id}"
+    try:
+        deployment_name = f"hermes-gateway-{agent_id}" if agent_id > 0 else "hermes-gateway"
+        deploy = await k8s.get_deployment(deployment_name)
+        if deploy and deploy.metadata.annotations:
+            display_name = deploy.metadata.annotations.get("hermes/display-name", display_name)
+    except Exception:
+        pass
+
+    logger.info("User login success: agent_id=%d, IP=%s", agent_id, client_ip)
+    return {"token": token, "agent_id": agent_id, "display_name": display_name, "expires_in": 7200}
+
+
+@app.post(f"{API_PREFIX}/user/logout", tags=["user"])
+async def user_logout(request: Request, _=user_auth):
+    """User logout -- revoke token."""
+    if user_auth is None:
+        raise HTTPException(status_code=501, detail="User auth module not loaded")
+
+    from auth import revoke_user_token
+
+    token = request.headers.get("X-User-Token", "")
+    if token:
+        revoke_user_token(token)
+    return {"ok": True}
+
+
+@app.get(f"{API_PREFIX}/user/me", tags=["user"])
+async def user_me(request: Request, _=user_auth):
+    """Get current user info."""
+    if user_auth is None:
+        raise HTTPException(status_code=501, detail="User auth module not loaded")
+
+    agent_id = getattr(request.state, "agent_id", None)
+    if agent_id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated as user")
+
+    display_name = f"Agent #{agent_id}"
+    try:
+        deployment_name = f"hermes-gateway-{agent_id}" if agent_id > 0 else "hermes-gateway"
+        deploy = await k8s.get_deployment(deployment_name)
+        if deploy and deploy.metadata.annotations:
+            display_name = deploy.metadata.annotations.get("hermes/display-name", display_name)
+    except Exception:
+        pass
+
+    return {"agent_id": agent_id, "display_name": display_name, "mode": "user"}
 
 
 # ===================================================================

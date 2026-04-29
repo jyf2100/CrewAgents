@@ -131,6 +131,12 @@ export const en: Translations = {
   healthCheckNow: "Check Now",
   healthOk: "OK",
   healthError: "Error",
+  // Terminal Tab
+  terminal: "Terminal",
+  terminalConnected: "Connected",
+  terminalDisconnected: "Disconnected",
+  terminalConnecting: "Connecting...",
+  terminalReconnect: "Reconnect",
 
   // Create Wizard
   createTitle: "Create New Agent",
@@ -395,4 +401,14 @@ export const en: Translations = {
   crewValidationRequired: "This field is required",
   comingSoon: "Coming Soon",
   comingSoonDescription: "This feature is under development. Stay tuned!",
+
+  // User Login
+  userLogin: "User Login",
+  adminLogin: "Admin Login",
+  userLoginHint: "Log in with your Agent API Key to manage your own Agent",
+  apiKeyPlaceholder: "Enter API Key",
+  loginRateLimited: "Too many attempts, please try again later",
+  invalidApiKey: "Invalid API Key",
+  logout: "Logout",
+  userMode: "User Mode",
 };

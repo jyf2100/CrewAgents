@@ -10,13 +10,16 @@ import { SwarmOverviewPage } from "./pages/swarm/SwarmOverviewPage";
 import { CrewListPage } from "./pages/swarm/CrewListPage";
 import { CrewEditPage } from "./pages/swarm/CrewEditPage";
 import { ComingSoonPage } from "./pages/swarm/ComingSoonPage";
-import { setAdminKey } from "./lib/admin-api";
+import { setAdminKey, getAuthMode } from "./lib/admin-api";
 import { useEffect } from "react";
 
 function App() {
   useEffect(() => {
-    const key = localStorage.getItem("admin_api_key");
-    if (key) setAdminKey(key);
+    const mode = getAuthMode();
+    if (mode === "admin") {
+      const key = localStorage.getItem("admin_api_key");
+      if (key) setAdminKey(key);
+    }
   }, []);
 
   return (
