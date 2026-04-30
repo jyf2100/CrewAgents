@@ -66,7 +66,7 @@ function clearAuth(): void {
     localStorage.removeItem("admin_api_key");
   }
   localStorage.removeItem("admin_mode");
-  window.location.href = "/admin/login";
+  window.location.href = "/admin/";
 }
 
 // ---------------------------------------------------------------------------

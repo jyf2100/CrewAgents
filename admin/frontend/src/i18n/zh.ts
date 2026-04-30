@@ -6,6 +6,7 @@ export interface Translations {
   // Navigation
   navDashboard: string;
   navSettings: string;
+  navWebui: string;
   // Dashboard
   dashboard: string;
   dashboardSubtitle: string;
@@ -398,6 +399,7 @@ export const zh: Translations = {
   // Navigation
   navDashboard: "仪表盘",
   navSettings: "设置",
+  navWebui: "Web 对话",
 
   // Dashboard
   dashboard: "仪表盘",

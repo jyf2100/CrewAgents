@@ -102,7 +102,7 @@ class _SpaFallbackMiddleware(BaseHTTPMiddleware):
     """
 
     # Paths that should always go to API (even from browser)
-    API_ONLY_PREFIXES = ("/health", "/agents", "/cluster", "/settings", "/templates", "/swarm", "/login", "/update-key", "/user")
+    API_ONLY_PREFIXES = ("/health", "/agents", "/cluster", "/settings", "/templates", "/swarm", "/update-key", "/user")
 
     async def dispatch(self, request: Request, call_next):
         accept = request.headers.get("accept", "")
@@ -443,11 +443,12 @@ async def agent_events(request: Request, agent_id: int):
 
 
 @app.post(f"{API_PREFIX}/agents/{{agent_id}}/api-key", response_model=AgentApiKeyResponse,
-          dependencies=[auth, admin_only], tags=["agents-monitoring"])
+          dependencies=[auth], tags=["agents-monitoring"])
 async def reveal_agent_api_key(agent_id: int, request: Request):
     """Reveal the full API key for an agent. Audit-logged."""
-    logger.info("API key revealed for agent %d from %s", agent_id, request.client.host if request.client else "unknown")
-    key = await manager.get_agent_api_key_full(agent_id)
+    aid = _aid(request, agent_id)
+    logger.info("API key revealed for agent %d from %s", aid, request.client.host if request.client else "unknown")
+    key = await manager.get_agent_api_key_full(aid)
     response = JSONResponse(content=AgentApiKeyResponse(agent_number=agent_id, api_key=key).model_dump())
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
@@ -493,14 +494,23 @@ async def download_backup(request: Request, filename: str):
 
 @app.get(f"{API_PREFIX}/agents/{{agent_id}}/weixin/qr",
          tags=["agents-weixin"])
-async def weixin_qr_login(request: Request, agent_id: int, key: str = Query(..., alias="key")):
+async def weixin_qr_login(request: Request, agent_id: int, key: Optional[str] = Query(None, alias="key"), token: Optional[str] = Query(None, alias="token")):
     """Initiate WeChat QR login session. Returns SSE stream.
 
     Uses query-param auth because EventSource cannot set custom headers.
+    Supports both admin key (?key=xxx) and user token (?token=xxx).
     """
-    # Auth via query param (EventSource limitation)
-    admin_key = getattr(request.app.state, "admin_key", "")
-    if not admin_key or not hmac.compare_digest(key, admin_key):
+    is_authorized = False
+    if key:
+        admin_key = getattr(request.app.state, "admin_key", "")
+        if admin_key and hmac.compare_digest(key, admin_key):
+            is_authorized = True
+    if token and not is_authorized:
+        from auth import verify_user_token
+        result = verify_user_token(token)
+        if result and result[0] == agent_id:
+            is_authorized = True
+    if not is_authorized:
         raise HTTPException(status_code=401, detail="Unauthorized")
     # Validate agent exists
     try:

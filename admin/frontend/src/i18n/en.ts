@@ -9,6 +9,7 @@ export const en: Translations = {
   // Navigation
   navDashboard: "Dashboard",
   navSettings: "Settings",
+  navWebui: "Web Chat",
 
   // Dashboard
   dashboard: "Dashboard",
