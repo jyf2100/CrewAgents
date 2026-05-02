@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import type { AgentListItem, DeployProgress } from "../lib/admin-api";
 import { adminApi, AdminApiError } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import type { Translations } from "../i18n/zh";
 import { showToast } from "../lib/toast";
+import { getApiError } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -164,6 +165,8 @@ function StepIndicator({
 export function CreateAgentPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const cloneFromId = searchParams.get("clone");
 
   const [agents, setAgents] = useState<AgentListItem[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
@@ -216,6 +219,61 @@ export function CreateAgentPage() {
         }));
       });
   }, []);
+
+  // Clone from existing agent
+  useEffect(() => {
+    if (!cloneFromId) return;
+    const id = Number(cloneFromId);
+    if (isNaN(id)) return;
+
+    Promise.all([
+      adminApi.getAgent(id),
+      adminApi.getAgentConfig(id),
+      adminApi.getAgentSoul(id),
+      adminApi.getAgentEnv(id),
+    ])
+      .then(([detail, configRes, soulRes, envRes]) => {
+        const yaml = configRes.content || "";
+        const providerMatch = yaml.match(/^provider:\s*(\S+)/m);
+        const modelMatch = yaml.match(/^default:\s*(\S+)/m);
+        const baseUrlMatch = yaml.match(/^base_url:\s*(\S+)/m);
+
+        const provider = providerMatch?.[1]?.trim() || "openrouter";
+        const model = modelMatch?.[1]?.trim() || PROVIDER_DEFAULTS[provider]?.model || "";
+        const baseUrl = baseUrlMatch?.[1]?.trim() || PROVIDER_DEFAULTS[provider]?.baseUrl || "";
+
+        const cpuLimit = detail.resources?.cpu_limit_millicores
+          ? `${detail.resources.cpu_limit_millicores}m`
+          : "1000m";
+        const memBytes = detail.resources?.memory_limit_bytes;
+        const memoryLimit = memBytes
+          ? memBytes >= 1024 ** 3
+            ? `${Math.round(memBytes / 1024 ** 3)}Gi`
+            : `${Math.round(memBytes / 1024 ** 2)}Mi`
+          : "1Gi";
+
+        const envVars = (envRes.variables || [])
+          .filter((v) => !v.is_secret)
+          .map((v) => ({ key: v.key, value: v.value }));
+
+        setForm((prev) => ({
+          ...prev,
+          displayName: (detail.display_name || detail.name || "").replace(/hermes-gateway-\d+/, "").trim(),
+          cpuLimit,
+          memoryLimit,
+          provider,
+          model,
+          baseUrl,
+          soul: soulRes.content || prev.soul,
+          envVars,
+          apiKey: "",
+        }));
+        showToast(t.settingsSaved);
+      })
+      .catch((err) => {
+        showToast(getApiError(err, "Failed to load agent config"));
+      });
+  }, [cloneFromId]);
 
   // ----- Form helpers -----
   function updateForm(partial: Partial<CreateForm>) {
@@ -390,7 +448,6 @@ export function CreateAgentPage() {
             deploying={deploying}
             deployResult={deployResult}
             deployError={deployError}
-            onDeploy={handleDeploy}
             t={t}
           />
         )}
@@ -398,27 +455,34 @@ export function CreateAgentPage() {
         </div>
 
         {/* Navigation buttons - always visible at bottom */}
-        {!deploying && (
-          <div className="flex justify-between items-center px-6 py-3 border-t border-border bg-card shrink-0">
-            <button
-              onClick={handlePrev}
-              disabled={currentStep === 0}
-              className="h-9 px-4 text-sm border border-border hover:bg-accent rounded disabled:opacity-50"
-            >
-              {t.back}
-            </button>
-            <div className="flex gap-3">
-              {currentStep < 3 && (
-                <button
-                  onClick={handleNext}
-                  className="h-9 px-6 text-sm rounded bg-primary text-white hover:bg-primary/90"
-                >
-                  {t.confirm}
-                </button>
-              )}
-            </div>
+        <div className="flex justify-between items-center px-6 py-3 border-t border-border bg-card shrink-0">
+          <button
+            onClick={handlePrev}
+            disabled={currentStep === 0 || deploying}
+            className="h-9 px-4 text-sm border border-border hover:bg-accent rounded disabled:opacity-50"
+          >
+            {t.back}
+          </button>
+          <div className="flex gap-3">
+            {currentStep < 3 && (
+              <button
+                onClick={handleNext}
+                className="h-9 px-6 text-sm rounded bg-primary text-white hover:bg-primary/90"
+              >
+                {t.confirm}
+              </button>
+            )}
+            {currentStep === 3 && !deployResult && (
+              <button
+                onClick={handleDeploy}
+                disabled={deploying}
+                className="h-9 px-6 text-sm rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+              >
+                {deploying ? t.deploying : t.deploy}
+              </button>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -755,14 +819,12 @@ function StepConfirm({
   deploying,
   deployResult,
   deployError,
-  onDeploy,
   t,
 }: {
   form: CreateForm;
   deploying: boolean;
   deployResult: DeployProgress | null;
   deployError: string | null;
-  onDeploy: () => void;
   t: Translations;
 }) {
   const providerLabel =
@@ -855,16 +917,7 @@ function StepConfirm({
         </div>
       )}
 
-      {/* Deploy button */}
-      {!deployResult && (
-        <button
-          onClick={onDeploy}
-          disabled={deploying}
-          className="h-10 px-8 text-sm rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
-        >
-          {deploying ? t.deploying : t.deploy}
-        </button>
-      )}
+      {/* Deploy button lives in the bottom nav bar */}
 
       {/* Success message */}
       {deployResult && (

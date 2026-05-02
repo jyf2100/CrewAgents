@@ -36,6 +36,7 @@ export interface Translations {
   start: string;
   delete: string;
   backup: string;
+  cloneAgent: string;
   edit: string;
   view: string;
   save: string;
@@ -125,6 +126,8 @@ export interface Translations {
   terminalDisconnected: string;
   terminalConnecting: string;
   terminalReconnect: string;
+  terminalDownloadPlaceholder: string;
+  terminalDownloadBtn: string;
   // Create Wizard
   createTitle: string;
   createSubtitle: string;
@@ -388,6 +391,35 @@ export interface Translations {
   invalidApiKey: string;
   logout: string;
   userMode: string;
+
+  // Email Auth
+  emailLogin: string;
+  emailPlaceholder: string;
+  passwordLabel: string;
+  passwordPlaceholder: string;
+  registerButton: string;
+  registerSuccess: string;
+  registerFailed: string;
+  backToLogin: string;
+
+  // User Management (admin)
+  userManagement: string;
+  activateUser: string;
+  bindAgent: string;
+  deleteUser: string;
+  noUsers: string;
+  userActive: string;
+  userInactive: string;
+  userDeleteConfirm: string;
+
+  // WebUI Provisioning
+  startChat: string;
+  provisionStatus: string;
+  provisionCompleted: string;
+  provisionPending: string;
+  provisionFailed: string;
+  provisionNotStarted: string;
+  registerSuccessWaitActivation: string;
 }
 
 export const zh: Translations = {
@@ -432,6 +464,7 @@ export const zh: Translations = {
   start: "启动",
   delete: "删除",
   backup: "备份",
+  cloneAgent: "复制",
   edit: "编辑",
   view: "查看",
   save: "保存",
@@ -529,6 +562,8 @@ export const zh: Translations = {
   terminalDisconnected: "已断开",
   terminalConnecting: "连接中...",
   terminalReconnect: "重新连接",
+  terminalDownloadPlaceholder: "/文件/路径",
+  terminalDownloadBtn: "下载",
 
   // Create Wizard
   createTitle: "创建新 Agent",
@@ -795,12 +830,41 @@ export const zh: Translations = {
   comingSoonDescription: "该功能正在开发中，敬请期待！",
 
   // User Login
-  userLogin: "用户登录",
-  adminLogin: "管理员登录",
+  userLogin: "API Key",
+  adminLogin: "管理员",
   userLoginHint: "使用你 Agent 的 API Key 登录，管理你自己的 Agent",
   apiKeyPlaceholder: "输入 API Key",
   loginRateLimited: "尝试次数过多，请稍后再试",
   invalidApiKey: "API Key 无效",
   logout: "退出登录",
   userMode: "用户模式",
+
+  // Email Auth
+  emailLogin: "邮箱",
+  emailPlaceholder: "输入邮箱",
+  passwordLabel: "密码",
+  passwordPlaceholder: "输入密码",
+  registerButton: "注册",
+  registerSuccess: "注册成功，等待管理员激活",
+  registerFailed: "注册失败",
+  backToLogin: "返回登录",
+
+  // User Management (admin)
+  userManagement: "用户管理",
+  activateUser: "激活",
+  bindAgent: "绑定 Agent",
+  deleteUser: "删除用户",
+  noUsers: "暂无注册用户",
+  userActive: "已激活",
+  userInactive: "未激活",
+  userDeleteConfirm: "确定删除该用户？",
+
+  // WebUI Provisioning
+  startChat: "开始对话",
+  provisionStatus: "对话配置",
+  provisionCompleted: "已配置",
+  provisionPending: "配置中...",
+  provisionFailed: "配置失败",
+  provisionNotStarted: "未配置",
+  registerSuccessWaitActivation: "注册成功！请等待管理员激活您的账号并分配 Agent。激活后即可使用对话功能。",
 };

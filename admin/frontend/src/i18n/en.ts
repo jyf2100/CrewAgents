@@ -42,6 +42,7 @@ export const en: Translations = {
   start: "Start",
   delete: "Delete",
   backup: "Backup",
+  cloneAgent: "Clone",
   edit: "Edit",
   view: "View",
   save: "Save",
@@ -138,6 +139,8 @@ export const en: Translations = {
   terminalDisconnected: "Disconnected",
   terminalConnecting: "Connecting...",
   terminalReconnect: "Reconnect",
+  terminalDownloadPlaceholder: "/path/to/file",
+  terminalDownloadBtn: "Download",
 
   // Create Wizard
   createTitle: "Create New Agent",
@@ -404,7 +407,7 @@ export const en: Translations = {
   comingSoonDescription: "This feature is under development. Stay tuned!",
 
   // User Login
-  userLogin: "User Login",
+  userLogin: "API Key",
   adminLogin: "Admin Login",
   userLoginHint: "Log in with your Agent API Key to manage your own Agent",
   apiKeyPlaceholder: "Enter API Key",
@@ -412,4 +415,33 @@ export const en: Translations = {
   invalidApiKey: "Invalid API Key",
   logout: "Logout",
   userMode: "User Mode",
+
+  // Email Auth
+  emailLogin: "Email",
+  emailPlaceholder: "Enter email",
+  passwordLabel: "Password",
+  passwordPlaceholder: "Enter password",
+  registerButton: "Register",
+  registerSuccess: "Registration successful, pending admin activation",
+  registerFailed: "Registration failed",
+  backToLogin: "Back to login",
+
+  // User Management (admin)
+  userManagement: "User Management",
+  activateUser: "Activate",
+  bindAgent: "Bind Agent",
+  deleteUser: "Delete User",
+  noUsers: "No registered users",
+  userActive: "Active",
+  userInactive: "Inactive",
+  userDeleteConfirm: "Delete this user?",
+
+  // WebUI Provisioning
+  startChat: "Start Chat",
+  provisionStatus: "Chat Setup",
+  provisionCompleted: "Configured",
+  provisionPending: "Configuring...",
+  provisionFailed: "Setup Failed",
+  provisionNotStarted: "Not Configured",
+  registerSuccessWaitActivation: "Registration successful! Please wait for an admin to activate your account and assign an Agent. You can start chatting once activated.",
 };

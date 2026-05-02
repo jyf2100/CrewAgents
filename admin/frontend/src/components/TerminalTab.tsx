@@ -45,6 +45,8 @@ export function TerminalTab({ agentId }: TerminalTabProps) {
   const fitRef = useRef<FitAddon | null>(null);
   const wsGeneration = useRef(0);
   const [connState, setConnState] = useState<ConnState>("connecting");
+  const [downloadPath, setDownloadPath] = useState("");
+  const [downloading, setDownloading] = useState(false);
 
   const connect = useCallback(async () => {
     // Clean up previous
@@ -187,6 +189,50 @@ export function TerminalTab({ agentId }: TerminalTabProps) {
     connect();
   };
 
+  const handleDownload = async () => {
+    const p = downloadPath.trim();
+    if (!p) return;
+    setDownloading(true);
+    try {
+      const headers: Record<string, string> = {};
+      const mode = localStorage.getItem("admin_mode");
+      if (mode === "user") {
+        headers["X-User-Token"] = localStorage.getItem("admin_user_token") || "";
+      } else {
+        headers["X-Admin-Key"] = localStorage.getItem("admin_api_key") || "";
+      }
+      const resp = await fetch(
+        `/admin/api/agents/${agentId}/terminal/download?path=${encodeURIComponent(p)}`,
+        { headers }
+      );
+      if (!resp.ok) {
+        const err = await resp.text().catch(() => resp.statusText);
+        if (termRef.current) {
+          termRef.current.writeln(`\r\n\x1b[31mDownload failed: ${err}\x1b[0m`);
+        }
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = p.split("/").pop() || "file";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      if (termRef.current) {
+        termRef.current.writeln(`\r\n\x1b[32mDownloaded: ${p}\x1b[0m`);
+      }
+    } catch (e) {
+      if (termRef.current) {
+        termRef.current.writeln(`\r\n\x1b[31mDownload error: ${e}\x1b[0m`);
+      }
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const statusColor =
     connState === "connected"
       ? "bg-green-400"
@@ -204,19 +250,40 @@ export function TerminalTab({ agentId }: TerminalTabProps) {
   return (
     <div className="space-y-3">
       {/* Status bar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 shrink-0">
           <span className={`inline-block h-2 w-2 rounded-full ${statusColor} ${connState === "connected" ? "animate-pulse" : ""}`} />
           <span className="text-xs text-secondary">{statusText}</span>
         </div>
-        {connState === "disconnected" && (
-          <button
-            onClick={handleReconnect}
-            className="px-3 py-1 text-xs rounded border border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/10 transition-colors"
-          >
-            {t.terminalReconnect}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* File download */}
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={downloadPath}
+              onChange={(e) => setDownloadPath(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleDownload()}
+              placeholder={t.terminalDownloadPlaceholder}
+              className="w-48 h-7 px-2 text-xs rounded border border-border-subtle bg-surface/50 text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent-cyan/50"
+            />
+            <button
+              onClick={handleDownload}
+              disabled={downloading || !downloadPath.trim()}
+              className="px-2.5 py-1 text-xs rounded border border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title={t.terminalDownloadBtn}
+            >
+              {downloading ? "..." : t.terminalDownloadBtn}
+            </button>
+          </div>
+          {connState === "disconnected" && (
+            <button
+              onClick={handleReconnect}
+              className="px-3 py-1 text-xs rounded border border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/10 transition-colors"
+            >
+              {t.terminalReconnect}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Terminal container */}

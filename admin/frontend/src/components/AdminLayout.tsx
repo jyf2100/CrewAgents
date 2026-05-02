@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { Outlet, Navigate, useLocation, Link, NavLink } from "react-router-dom";
 import { useI18n } from "../hooks/useI18n";
 import { getAuthMode, adminApi } from "../lib/admin-api";
+import { AdminApiError } from "../lib/admin-api";
 
 /* ── Inline icon components (no external deps) ── */
 
@@ -118,11 +119,11 @@ export function AdminLayout() {
   const { t, lang, setLang } = useI18n();
   const location = useLocation();
   const authMode = getAuthMode();
-  const isUser = authMode === "user";
+  const isUser = authMode === "user" || authMode === "email";
 
-  // Auth check: user mode uses token, admin mode uses key
+  // Auth check: user/email mode uses token, admin mode uses key
   const adminKey = localStorage.getItem("admin_api_key");
-  const userToken = localStorage.getItem("admin_user_token");
+  const userToken = localStorage.getItem("admin_user_token") || localStorage.getItem("admin_email_token");
   const isAuthenticated = isUser ? !!userToken : !!adminKey;
 
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -147,6 +148,7 @@ export function AdminLayout() {
     if (isUser) {
       await adminApi.userLogout();
       localStorage.removeItem("admin_user_token");
+      localStorage.removeItem("admin_email_token");
       localStorage.removeItem("admin_user_agent_id");
       localStorage.removeItem("admin_user_display_name");
     } else {
@@ -212,23 +214,35 @@ export function AdminLayout() {
           })}
         </nav>
 
-        {/* Web UI link */}
+        {/* Web UI / Start Chat link */}
         <div className="px-2 mt-4">
-          <a
-            href={`http://${window.location.hostname}:48080`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-text-secondary hover:text-text-primary hover:bg-surface/50 transition-colors duration-150"
-          >
-            <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-            </svg>
-            <span>{t.navWebui}</span>
-            <svg viewBox="0 0 20 20" className="w-3 h-3 ml-auto opacity-40" fill="currentColor" aria-hidden="true">
-              <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
-              <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
-            </svg>
-          </a>
+          {isUser ? (
+            <Link
+              to="/chat"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-accent-cyan hover:bg-accent-cyan/10 transition-colors duration-150 border border-accent-cyan/30"
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+              </svg>
+              <span>{t.startChat}</span>
+            </Link>
+          ) : (
+            <a
+              href={`http://${window.location.hostname}:48080`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-text-secondary hover:text-text-primary hover:bg-surface/50 transition-colors duration-150"
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+              </svg>
+              <span>{t.navWebui}</span>
+              <svg viewBox="0 0 20 20" className="w-3 h-3 ml-auto opacity-40" fill="currentColor" aria-hidden="true">
+                <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
+                <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
+              </svg>
+            </a>
+          )}
         </div>
 
         {/* Swarm section — admin only */}
@@ -492,7 +506,7 @@ export function AdminLayout() {
         </header>
 
         {/* Content */}
-        <main className="flex-1 min-h-0 overflow-auto">
+        <main className="flex-1 min-h-0 overflow-auto relative">
           <div className="p-4 md:p-6 max-w-7xl mx-auto w-full animate-page-enter">
             <Outlet />
           </div>

@@ -276,6 +276,18 @@ export function AgentCard({ agent, onActionDone }: AgentCardProps) {
               >
                 {t.backup}
               </button>
+              {!isUser && (
+              <button
+                className="w-full text-left px-3 py-1.5 hover:bg-surface text-accent-cyan disabled:opacity-50"
+                disabled={actionLoading}
+                onClick={() => {
+                  setMenuOpen(false);
+                  navigate(`/create?clone=${agent.id}`);
+                }}
+              >
+                {t.cloneAgent}
+              </button>
+              )}
               <hr className="my-1 border-border" />
               {!isUser && (
                 <button

@@ -26,7 +26,7 @@ export class AdminApiError extends Error {
 // Auth mode helpers
 // ---------------------------------------------------------------------------
 
-export type AuthMode = "admin" | "user";
+export type AuthMode = "admin" | "user" | "email";
 
 const ADMIN_BASE = "/admin/api";
 
@@ -48,6 +48,10 @@ export function setAuthMode(mode: AuthMode): void {
 
 export function getAuthHeaders(): Record<string, string> {
   const mode = getAuthMode();
+  if (mode === "email") {
+    const token = localStorage.getItem("admin_email_token") || "";
+    return { "X-Email-Token": token };
+  }
   if (mode === "user") {
     const token = localStorage.getItem("admin_user_token") || "";
     return { "X-User-Token": token };
@@ -58,7 +62,11 @@ export function getAuthHeaders(): Record<string, string> {
 
 function clearAuth(): void {
   const mode = getAuthMode();
-  if (mode === "user") {
+  if (mode === "email") {
+    localStorage.removeItem("admin_email_token");
+    localStorage.removeItem("admin_user_agent_id");
+    localStorage.removeItem("admin_user_display_name");
+  } else if (mode === "user") {
     localStorage.removeItem("admin_user_token");
     localStorage.removeItem("admin_user_agent_id");
     localStorage.removeItem("admin_user_display_name");
@@ -399,6 +407,17 @@ export interface UserMeResponse {
   display_name: string;
 }
 
+export interface UserResponse {
+  id: number;
+  email: string;
+  display_name: string;
+  agent_id: number | null;
+  is_active: boolean;
+  created_at: string | null;
+  provisioning_status: string;
+  provisioning_error: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // API methods
 // ---------------------------------------------------------------------------
@@ -444,17 +463,106 @@ export const adminApi = {
 
   async userLogout(): Promise<void> {
     const mode = getAuthMode();
-    const token = localStorage.getItem("admin_user_token");
-    if (mode === "user" && token) {
-      try {
-        await fetch(`${ADMIN_BASE}/user/logout`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-User-Token": token },
-        });
-      } catch {
-        // Ignore errors on logout — best effort
+    if (mode === "email") {
+      const token = localStorage.getItem("admin_email_token");
+      if (token) {
+        try {
+          await fetch(`${ADMIN_BASE}/user/logout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Email-Token": token },
+          });
+        } catch {
+          // Ignore errors on logout — best effort
+        }
+      }
+    } else if (mode === "user") {
+      const token = localStorage.getItem("admin_user_token");
+      if (token) {
+        try {
+          await fetch(`${ADMIN_BASE}/user/logout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-User-Token": token },
+          });
+        } catch {
+          // Ignore errors on logout — best effort
+        }
       }
     }
+  },
+
+  // -- Email Auth --
+  async emailLogin(email: string, password: string): Promise<{
+    token: string;
+    user_id: number;
+    email: string;
+    agent_id: number | null;
+    display_name: string;
+  }> {
+    return fetch(`${ADMIN_BASE}/user/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    }).then(async (res) => {
+      if (res.status === 401) {
+        throw new AdminApiError(401, "Invalid email or password");
+      }
+      if (res.status === 403) {
+        const body = await res.json();
+        throw new AdminApiError(403, body.detail || "Account not yet activated");
+      }
+      if (res.status === 429) {
+        throw new AdminApiError(429, "Too many attempts, please try again later");
+      }
+      if (!res.ok) {
+        let detail = `Request failed (${res.status})`;
+        try {
+          const body = await res.json();
+          if (typeof body.detail === "string") detail = body.detail;
+        } catch {
+          // ignore
+        }
+        throw new AdminApiError(res.status, detail);
+      }
+      return res.json();
+    });
+  },
+
+  async register(email: string, password: string, display_name?: string): Promise<{ message: string }> {
+    return adminFetch("/user/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, display_name }),
+    });
+  },
+
+  // -- User Management (admin) --
+  listUsers(): Promise<{ users: UserResponse[] }> {
+    return adminFetch("/user/list");
+  },
+
+  activateUser(userId: number, agentId: number): Promise<UserResponse> {
+    return adminFetch(`/user/${userId}/activate`, {
+      method: "POST",
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  },
+
+  deleteUser(userId: number): Promise<{ message: string }> {
+    return adminFetch(`/user/${userId}`, { method: "DELETE" });
+  },
+
+  rebindAgent(userId: number, agentId: number): Promise<{ status: string; provisioning: string }> {
+    return adminFetch(`/user/${userId}/rebind-agent`, {
+      method: "POST",
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  },
+
+  retryProvision(userId: number): Promise<{ provisioning_status: string }> {
+    return adminFetch(`/user/${userId}/retry-provision`, { method: "POST" });
+  },
+
+  getWebUILoginUrl(): Promise<{ url: string; email: string; password: string; provisioning_status: string }> {
+    return adminFetch("/user/webui-url");
   },
 
   getUserMe(): Promise<UserMeResponse> {

@@ -5,6 +5,7 @@ import { AgentDetailPage } from "./pages/AgentDetailPage";
 import { CreateAgentPage } from "./pages/CreateAgentPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ChatPage } from "./pages/ChatPage";
 import { SwarmGuard } from "./components/SwarmGuard";
 import { SwarmOverviewPage } from "./pages/swarm/SwarmOverviewPage";
 import { CrewListPage } from "./pages/swarm/CrewListPage";
@@ -29,6 +30,7 @@ function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/agents/:id" element={<AgentDetailPage />} />
           <Route path="/create" element={<CreateAgentPage />} />
+          <Route path="/chat" element={<ChatPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route
             element={
