@@ -8,10 +8,12 @@ spec:
   selector:
     matchLabels:
       app: hermes-gateway
+      app.kubernetes.io/component: gateway
   template:
     metadata:
       labels:
         app: hermes-gateway
+        app.kubernetes.io/component: gateway
     spec:
       serviceAccountName: hermes-gateway
       containers:

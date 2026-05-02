@@ -12,6 +12,7 @@ spec:
     metadata:
       labels:
         app: hermes-gateway-3
+        app.kubernetes.io/component: gateway
     spec:
       serviceAccountName: hermes-gateway
       containers:

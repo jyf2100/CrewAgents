@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-orchestrator
+  namespace: hermes-agent
+  labels:
+    app: hermes-orchestrator
+    app.kubernetes.io/component: orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes-orchestrator
+  template:
+    metadata:
+      labels:
+        app: hermes-orchestrator
+        app.kubernetes.io/component: orchestrator
+    spec:
+      serviceAccountName: hermes-orchestrator
+      containers:
+        - name: orchestrator
+          image: hermes-orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ORCHESTRATOR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-orchestrator-secret
+                  key: ORCHESTRATOR_API_KEY
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-redis-secret
+                  key: redis-url
+            - name: GATEWAY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-gateway-1-secret
+                  key: api_key
+            - name: K8S_NAMESPACE
+              value: "hermes-agent"
+            - name: LOG_LEVEL
+              value: "INFO"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-orchestrator
+  namespace: hermes-agent
+spec:
+  selector:
+    app: hermes-orchestrator
+  ports:
+    - port: 8080
+      targetPort: 8080
