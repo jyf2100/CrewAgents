@@ -93,3 +93,12 @@ RBAC: Admin ClusterRole needs `metrics.k8s.io` permissions for resource monitori
 - **Skills** have conditional activation via `fallback_for_toolsets`, `requires_toolsets` in YAML frontmatter, evaluated at prompt build time.
 - **Skin system** (`hermes_cli/skin_engine.py`) is pure data — YAML drop-in to `~/.hermes/skins/`.
 - **`yaml.dump()`** serializes Python enums as `!!python/object/apply:` tags. Always convert to `.value` first.
+
+
+## 开发环境
+1、172.32.153.184是当前开发服务器可以sudo -u root
+2、编译打包镜像注意用国内源
+3、github下载使用 代理 http_proxy=http://172.32.147.190:7890
+
+## 测试环境
+172.32.153.183  当前服务器上可以ssh root@172.32.153.183

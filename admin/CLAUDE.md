@@ -125,6 +125,7 @@ npx playwright test --ui      # Interactive UI mode
 ### Running Tests
 - No frontend unit tests yet — E2E coverage only.
 - Backend has no separate test suite — tested via E2E with mocked K8s API.
+- 证据链确凿，不要跟我讲可能是什么原因
 
 ## Frontend Design Rules
 
@@ -172,3 +173,4 @@ for the context.
 - **i18n sync**: Adding a key to `en.ts` without `zh.ts` (or vice versa) causes type errors.
 - **Auth source of truth**: Both `verify_admin_key` (main.py) and `_verify_swarm_admin_key` (swarm_routes.py) read from `app.state.admin_key`. Key rotation via `update_admin_key` updates both the global `ADMIN_KEY` and `app.state.admin_key` so all endpoints see the new key immediately.
 - **Static files**: Production serves from `backend/static/` — after frontend changes, rebuild and copy.
+
