@@ -420,6 +420,44 @@ export interface Translations {
   provisionFailed: string;
   provisionNotStarted: string;
   registerSuccessWaitActivation: string;
+
+  // Orchestrator
+  orchestratorNav: string;
+  orchestratorOverview: string;
+  orchestratorNewTask: string;
+  orchestratorTaskList: string;
+  orchestratorAgentFleet: string;
+  orchestratorNoAgents: string;
+  orchestratorNoTasks: string;
+  orchestratorStatusOnline: string;
+  orchestratorStatusDegraded: string;
+  orchestratorStatusOffline: string;
+  orchestratorCircuitClosed: string;
+  orchestratorCircuitOpen: string;
+  orchestratorCircuitHalfOpen: string;
+  orchestratorSubmitTask: string;
+  orchestratorPromptLabel: string;
+  orchestratorInstructionsLabel: string;
+  orchestratorPriorityLabel: string;
+  orchestratorTimeoutLabel: string;
+  orchestratorCallbackLabel: string;
+  orchestratorSubmitting: string;
+  orchestratorSubmitSuccess: string;
+  orchestratorSubmitError: string;
+  orchestratorTaskStatus: string;
+  orchestratorTaskAgent: string;
+  orchestratorTaskCreated: string;
+  orchestratorTaskDuration: string;
+  orchestratorTaskTokens: string;
+  orchestratorTaskResult: string;
+  orchestratorTaskError: string;
+  orchestratorTaskRetries: string;
+  orchestratorCancelTask: string;
+  orchestratorCircuitBreaker: string;
+  orchestratorLoad: string;
+  orchestratorHealthCheck: string;
+  orchestratorCurrentLoad: string;
+  orchestratorMaxConcurrent: string;
 }
 
 export const zh: Translations = {
@@ -867,4 +905,42 @@ export const zh: Translations = {
   provisionFailed: "配置失败",
   provisionNotStarted: "未配置",
   registerSuccessWaitActivation: "注册成功！请等待管理员激活您的账号并分配 Agent。激活后即可使用对话功能。",
+
+  // Orchestrator
+  orchestratorNav: "编排器",
+  orchestratorOverview: "概览",
+  orchestratorNewTask: "提交任务",
+  orchestratorTaskList: "任务列表",
+  orchestratorAgentFleet: "Agent 集群",
+  orchestratorNoAgents: "暂无注册 Agent",
+  orchestratorNoTasks: "暂无任务",
+  orchestratorStatusOnline: "在线",
+  orchestratorStatusDegraded: "降级",
+  orchestratorStatusOffline: "离线",
+  orchestratorCircuitClosed: "正常",
+  orchestratorCircuitOpen: "熔断",
+  orchestratorCircuitHalfOpen: "恢复中",
+  orchestratorSubmitTask: "提交任务",
+  orchestratorPromptLabel: "提示词",
+  orchestratorInstructionsLabel: "系统指令",
+  orchestratorPriorityLabel: "优先级",
+  orchestratorTimeoutLabel: "超时时间（秒）",
+  orchestratorCallbackLabel: "回调地址（HTTPS）",
+  orchestratorSubmitting: "提交中...",
+  orchestratorSubmitSuccess: "任务提交成功",
+  orchestratorSubmitError: "任务提交失败",
+  orchestratorTaskStatus: "状态",
+  orchestratorTaskAgent: "Agent",
+  orchestratorTaskCreated: "创建时间",
+  orchestratorTaskDuration: "耗时",
+  orchestratorTaskTokens: "Token 用量",
+  orchestratorTaskResult: "结果",
+  orchestratorTaskError: "错误",
+  orchestratorTaskRetries: "重试次数",
+  orchestratorCancelTask: "取消任务",
+  orchestratorCircuitBreaker: "熔断器",
+  orchestratorLoad: "负载",
+  orchestratorHealthCheck: "最近健康检查",
+  orchestratorCurrentLoad: "当前负载",
+  orchestratorMaxConcurrent: "最大并发",
 };

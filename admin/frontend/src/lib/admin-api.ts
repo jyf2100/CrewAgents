@@ -392,6 +392,49 @@ export interface TestAgentApiResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Orchestrator types
+// ---------------------------------------------------------------------------
+
+export interface OrchestratorTask {
+  task_id: string;
+  status: "submitted" | "queued" | "assigned" | "executing" | "streaming" | "done" | "failed";
+  assigned_agent: string | null;
+  run_id: string | null;
+  result: {
+    content: string;
+    usage: { input_tokens: number; output_tokens: number; total_tokens: number };
+    duration_seconds: number;
+    run_id: string;
+  } | null;
+  error: string | null;
+  retry_count: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface OrchestratorAgent {
+  agent_id: string;
+  gateway_url: string;
+  status: "online" | "degraded" | "offline";
+  models: string[];
+  current_load: number;
+  max_concurrent: number;
+  circuit_state: "closed" | "open" | "half_open";
+  last_health_check: number;
+}
+
+export interface TaskSubmitRequest {
+  prompt: string;
+  instructions?: string;
+  model_id?: string;
+  priority?: number;
+  timeout_seconds?: number;
+  max_retries?: number;
+  callback_url?: string;
+  metadata?: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
 // User Login response
 // ---------------------------------------------------------------------------
 
@@ -761,5 +804,39 @@ export const adminApi = {
     return adminFetch(`/agents/${agentId}/api-key`, {
       method: "POST",
     });
+  },
+
+  // -- Orchestrator --
+  orchestratorCapability(): Promise<{ enabled: boolean }> {
+    return adminFetch("/orchestrator/capability");
+  },
+
+  orchestratorSubmitTask(req: TaskSubmitRequest): Promise<{ task_id: string; status: string; created_at: number }> {
+    return adminFetch("/orchestrator/tasks", { method: "POST", body: JSON.stringify(req) });
+  },
+
+  orchestratorListTasks(params?: { status?: string; limit?: number; offset?: number }): Promise<OrchestratorTask[]> {
+    const query = new URLSearchParams();
+    if (params?.status) query.set("status", params.status);
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.offset) query.set("offset", String(params.offset));
+    const qs = query.toString();
+    return adminFetch(`/orchestrator/tasks${qs ? `?${qs}` : ""}`);
+  },
+
+  orchestratorGetTask(taskId: string): Promise<OrchestratorTask> {
+    return adminFetch(`/orchestrator/tasks/${taskId}`);
+  },
+
+  orchestratorCancelTask(taskId: string): Promise<{ status: string }> {
+    return adminFetch(`/orchestrator/tasks/${taskId}`, { method: "DELETE" });
+  },
+
+  orchestratorListAgents(): Promise<{ agents: OrchestratorAgent[] }> {
+    return adminFetch("/orchestrator/agents");
+  },
+
+  orchestratorAgentHealth(agentId: string): Promise<OrchestratorAgent> {
+    return adminFetch(`/orchestrator/agents/${agentId}/health`);
   },
 };

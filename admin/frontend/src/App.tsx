@@ -11,6 +11,11 @@ import { SwarmOverviewPage } from "./pages/swarm/SwarmOverviewPage";
 import { CrewListPage } from "./pages/swarm/CrewListPage";
 import { CrewEditPage } from "./pages/swarm/CrewEditPage";
 import { ComingSoonPage } from "./pages/swarm/ComingSoonPage";
+// Orchestrator — pages created by other tasks
+import { OrchestratorGuard } from "./components/OrchestratorGuard";
+import { OrchestratorOverviewPage } from "./pages/orchestrator/OrchestratorOverviewPage";
+import { TaskSubmitPage } from "./pages/orchestrator/TaskSubmitPage";
+import { TaskDetailPage } from "./pages/orchestrator/TaskDetailPage";
 import { setAdminKey, getAuthMode } from "./lib/admin-api";
 import { useEffect } from "react";
 
@@ -45,6 +50,12 @@ function App() {
             <Route path="/swarm/crews" element={<CrewListPage />} />
             <Route path="/swarm/crews/new" element={<CrewEditPage />} />
             <Route path="/swarm/crews/:id/edit" element={<CrewEditPage />} />
+          </Route>
+          {/* Orchestrator routes */}
+          <Route element={<OrchestratorGuard />}>
+            <Route path="/orchestrator" element={<OrchestratorOverviewPage />} />
+            <Route path="/orchestrator/tasks/new" element={<TaskSubmitPage />} />
+            <Route path="/orchestrator/tasks/:taskId" element={<TaskDetailPage />} />
           </Route>
         </Route>
         <Route path="/login" element={<LoginPage />} />

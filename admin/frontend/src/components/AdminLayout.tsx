@@ -399,6 +399,89 @@ export function AdminLayout() {
           </div>
         )}
 
+        {/* Orchestrator section — admin only */}
+        {!isUser && (
+          <div className="mt-6 px-3">
+            <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2 px-2">
+              {t.orchestratorNav}
+            </p>
+            <NavLink
+              to="/orchestrator"
+              onClick={onNavigate}
+              className={({ isActive }) =>
+                [
+                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors duration-150 relative",
+                  isActive
+                    ? "text-text-primary font-medium"
+                    : "text-text-secondary hover:text-text-primary hover:bg-surface/50",
+                ].join(" ")
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span
+                      className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent-pink"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="w-4 h-4 shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                  </svg>
+                  <span>{t.orchestratorOverview}</span>
+                </>
+              )}
+            </NavLink>
+            <NavLink
+              to="/orchestrator/tasks/new"
+              onClick={onNavigate}
+              className={({ isActive }) =>
+                [
+                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors duration-150 relative",
+                  isActive
+                    ? "text-text-primary font-medium"
+                    : "text-text-secondary hover:text-text-primary hover:bg-surface/50",
+                ].join(" ")
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span
+                      className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent-pink"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="w-4 h-4 shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span>{t.orchestratorNewTask}</span>
+                </>
+              )}
+            </NavLink>
+          </div>
+        )}
+
         {/* Bottom section */}
         <div className="px-3 pb-4 space-y-3 shrink-0">
           {/* User mode badge */}

@@ -13,6 +13,8 @@ import time
 import redis as _redis
 from typing import Optional
 
+import httpx
+
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -56,6 +58,14 @@ API_PREFIX = ""
 K8S_NAMESPACE = os.getenv("K8S_NAMESPACE", "hermes-agent")
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 HERMES_DATA_ROOT = os.getenv("HERMES_DATA_ROOT", "/data/hermes")
+ORCHESTRATOR_INTERNAL_URL = os.environ.get("ORCHESTRATOR_INTERNAL_URL", "http://hermes-orchestrator:8080")
+ORCHESTRATOR_API_KEY = os.environ.get("ORCHESTRATOR_API_KEY", "")
+if not ORCHESTRATOR_API_KEY:
+    logger_orch = logging.getLogger("hermes-admin.orchestrator")
+    logger_orch.warning("ORCHESTRATOR_API_KEY not set — orchestrator proxy will not authenticate")
+
+# Shared httpx client for orchestrator proxy (connection pooling)
+_orch_client: httpx.AsyncClient | None = None
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("hermes-admin")
@@ -79,12 +89,13 @@ app.include_router(user_router)
 # ---------------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------------
+ADMIN_CORS_ORIGINS = os.environ.get("ADMIN_CORS_ORIGINS", "").split(",") if os.environ.get("ADMIN_CORS_ORIGINS") else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ADMIN_CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "X-Admin-Key"],
 )
 
 
@@ -104,7 +115,7 @@ class _SpaFallbackMiddleware(BaseHTTPMiddleware):
     """
 
     # Paths that should always go to API (even from browser)
-    API_ONLY_PREFIXES = ("/health", "/agents", "/cluster", "/settings", "/templates", "/swarm", "/update-key", "/user")
+    API_ONLY_PREFIXES = ("/health", "/agents", "/cluster", "/settings", "/templates", "/swarm", "/update-key", "/user", "/orchestrator")
 
     async def dispatch(self, request: Request, call_next):
         accept = request.headers.get("accept", "")
@@ -763,6 +774,94 @@ async def user_me(request: Request, _=user_auth):
         pass
 
     return {"agent_id": agent_id, "display_name": display_name, "mode": "user"}
+
+
+# ===================================================================
+# Orchestrator Proxy
+# ===================================================================
+
+@app.get("/admin/api/orchestrator/capability")
+async def orchestrator_capability():
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{ORCHESTRATOR_INTERNAL_URL}/health")
+            return {"enabled": resp.status_code == 200}
+    except Exception:
+        return {"enabled": False}
+
+
+@app.post("/admin/api/orchestrator/tasks", dependencies=[auth, admin_only])
+async def orchestrator_submit_task(request: Request):
+    body = await request.json()
+    # Validate body matches the expected schema
+    from pydantic import ValidationError
+    try:
+        from hermes_orchestrator.models.api import TaskSubmitRequest
+        validated = TaskSubmitRequest(**body)
+        body = validated.model_dump()
+    except (ImportError, ValidationError):
+        pass  # If orchestrator package unavailable, forward as-is
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{ORCHESTRATOR_INTERNAL_URL}/api/v1/tasks",
+            json=body,
+            headers={"Authorization": f"Bearer {ORCHESTRATOR_API_KEY}"},
+        )
+        return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
+
+
+@app.get("/admin/api/orchestrator/tasks", dependencies=[auth, admin_only])
+async def orchestrator_list_tasks(request: Request):
+    params = dict(request.query_params)
+    if "limit" in params:
+        params["limit"] = str(min(int(params.get("limit", 50)), 200))
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{ORCHESTRATOR_INTERNAL_URL}/api/v1/tasks",
+            params=params,
+            headers={"Authorization": f"Bearer {ORCHESTRATOR_API_KEY}"},
+        )
+        return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
+
+
+@app.get("/admin/api/orchestrator/tasks/{task_id}", dependencies=[auth, admin_only])
+async def orchestrator_get_task(task_id: str):
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{ORCHESTRATOR_INTERNAL_URL}/api/v1/tasks/{task_id}",
+            headers={"Authorization": f"Bearer {ORCHESTRATOR_API_KEY}"},
+        )
+        return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
+
+
+@app.delete("/admin/api/orchestrator/tasks/{task_id}", dependencies=[auth, admin_only])
+async def orchestrator_cancel_task(task_id: str):
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.delete(
+            f"{ORCHESTRATOR_INTERNAL_URL}/api/v1/tasks/{task_id}",
+            headers={"Authorization": f"Bearer {ORCHESTRATOR_API_KEY}"},
+        )
+        return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
+
+
+@app.get("/admin/api/orchestrator/agents", dependencies=[auth, admin_only])
+async def orchestrator_list_agents():
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{ORCHESTRATOR_INTERNAL_URL}/api/v1/agents",
+            headers={"Authorization": f"Bearer {ORCHESTRATOR_API_KEY}"},
+        )
+        return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
+
+
+@app.get("/admin/api/orchestrator/agents/{agent_id}/health", dependencies=[auth, admin_only])
+async def orchestrator_agent_health(agent_id: str):
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{ORCHESTRATOR_INTERNAL_URL}/api/v1/agents/{agent_id}/health",
+            headers={"Authorization": f"Bearer {ORCHESTRATOR_API_KEY}"},
+        )
+        return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
 
 
 # ===================================================================
