@@ -314,3 +314,33 @@ class K8sClient:
             ),
             timeout=K8S_API_TIMEOUT,
         )
+
+    async def read_file_from_pod(self, pod_name: str, path: str) -> tuple[bytes, str]:
+        """Read a file from a pod via exec. Returns (content_bytes, error_msg).
+        Uses base64 encoding to safely handle binary files."""
+        from kubernetes.stream import stream as k8s_stream
+        import base64
+        cmd = ["sh", "-c", f"if [ -f '{path}' ] && [ -r '{path}' ]; then base64 '{path}'; else echo '__NOT_FOUND__'; fi"]
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    k8s_stream,
+                    self.core_api.connect_get_namespaced_pod_exec,
+                    name=pod_name,
+                    namespace=self.namespace,
+                    command=cmd,
+                    stdin=False,
+                    stdout=True,
+                    stderr=True,
+                    tty=False,
+                    _preload_content=True,
+                ),
+                timeout=30,
+            )
+            if "__NOT_FOUND__" in result:
+                return b"", "File not found or not readable"
+            return base64.b64decode(result.strip()), ""
+        except asyncio.TimeoutError:
+            return b"", "Timeout reading file"
+        except Exception as e:
+            return b"", str(e)

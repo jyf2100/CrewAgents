@@ -40,6 +40,7 @@ from templates import TemplateGenerator
 from weixin import stream_weixin_qr, start_qr_session, end_qr_session, read_weixin_status, unbind_weixin
 from swarm_routes import router as swarm_router
 from terminal import router as terminal_router
+from user_routes import router as user_router
 try:
     from auth import auth as user_auth, get_effective_agent_id, cleanup_expired_user_tokens
 except ImportError:
@@ -72,6 +73,7 @@ app.state.admin_key = ADMIN_KEY
 # Include swarm router
 app.include_router(swarm_router)
 app.include_router(terminal_router)
+app.include_router(user_router)
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +252,13 @@ async def _startup_cleanup():
 async def _warn_no_auth():
     if not app.state.admin_key:
         logger.warning("ADMIN_KEY not set — all API endpoints are unauthenticated!")
+
+    # Initialize database (for email/password auth)
+    try:
+        from database import init_db
+        await init_db()
+    except Exception as e:
+        logger.warning("Database init skipped: %s", e)
 
 
 def _verify_sse_token(agent_id: int, token: str) -> bool:

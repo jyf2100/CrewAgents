@@ -40,6 +40,19 @@ spec:
               value: "/data/hermes"
             - name: PYTHONUNBUFFERED
               value: "1"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: database-url
+            - name: WEBUI_INTERNAL_URL
+              value: "http://172.32.153.184:48080"
+            - name: EXTERNAL_WEBUI_URL
+              value: "http://roc-epyc:48080"
+            - name: WEBUI_ADMIN_EMAIL
+              value: "rocju315@gmail.com"
+            - name: WEBUI_ADMIN_PASSWORD
+              value: "HermesAdmin2026!"
           readinessProbe:
             httpGet:
               path: /health

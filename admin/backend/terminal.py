@@ -4,13 +4,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import secrets as _secrets
 import struct
 import threading
 import time
 from typing import Optional
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 
 logger = logging.getLogger("hermes-admin.terminal")
 
@@ -86,6 +89,43 @@ async def get_terminal_token(agent_id: int, request: Request):
     expires_at = time.time() + TERMINAL_TOKEN_TTL
     _terminal_tokens[token] = (effective_id, expires_at)
     return {"token": token, "expires_in": TERMINAL_TOKEN_TTL}
+
+
+# ---------------------------------------------------------------------------
+# File download from pod
+# ---------------------------------------------------------------------------
+@router.get("/agents/{agent_id}/terminal/download", dependencies=[auth])
+async def download_file(request: Request, agent_id: int, path: str = Query(..., alias="path")):
+    """Download a file from the agent pod."""
+    override = getattr(request.state, 'agent_id', None)
+    effective_id = override if override is not None else agent_id
+
+    from main import k8s
+    deployment_name = f"hermes-gateway-{effective_id}"
+    pods = await k8s.get_pods_for_deployment(deployment_name)
+    pod_name = None
+    for pod in pods:
+        if pod.status.phase == "Running":
+            pod_name = pod.metadata.name
+            break
+    if not pod_name:
+        raise HTTPException(status_code=404, detail="No running pod found")
+
+    # Sanitize path
+    file_path = unquote(path).strip()
+    if not file_path.startswith("/"):
+        file_path = "/" + file_path
+
+    content, error = await k8s.read_file_from_pod(pod_name, file_path)
+    if error:
+        raise HTTPException(status_code=404, detail=error)
+
+    filename = os.path.basename(file_path) or "file"
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------------------------------------------------------------------------

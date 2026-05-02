@@ -23,13 +23,10 @@ spec:
           type: DirectoryOrCreate
       containers:
       - env:
-        - name: OPENAI_API_BASE_URL
-          value: http://hermes-gateway-1:8642/v1
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              key: api_key
-              name: hermes-gateway-1-secret
+        - name: ENABLE_DIRECT_CONNECTIONS
+          value: 'true'
+        - name: ENABLE_SIGNUP
+          value: 'false'
         - name: WEBUI_AUTH
           value: 'true'
         - name: PORT

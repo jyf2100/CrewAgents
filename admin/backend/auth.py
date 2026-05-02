@@ -72,6 +72,45 @@ def revoke_all_tokens_for_agent(agent_id: int) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Email token store (for email/password authenticated sessions)
+# ---------------------------------------------------------------------------
+_email_tokens: dict[str, tuple[int, str, Optional[int], float]] = {}
+# token -> (user_id, email, agent_id, expires_at)
+
+
+def mint_email_token(user_id: int, email: str, agent_id: Optional[int] = None) -> str:
+    cleanup_expired_user_tokens()
+    _cleanup_expired_email_tokens()
+    token = _secrets.token_urlsafe(32)
+    expires_at = time.time() + USER_TOKEN_TTL
+    _email_tokens[token] = (user_id, email, agent_id, expires_at)
+    return token
+
+
+def verify_email_token(token: str) -> Optional[tuple[int, str, Optional[int]]]:
+    """Returns (user_id, email, agent_id) or None."""
+    entry = _email_tokens.get(token)
+    if entry is None:
+        return None
+    user_id, email, agent_id, expires_at = entry
+    if time.time() > expires_at:
+        _email_tokens.pop(token, None)
+        return None
+    return (user_id, email, agent_id)
+
+
+def revoke_email_token(token: str) -> bool:
+    return _email_tokens.pop(token, None) is not None
+
+
+def _cleanup_expired_email_tokens() -> None:
+    now = time.time()
+    expired = [k for k, (_, _, _, exp) in _email_tokens.items() if now > exp]
+    for k in expired:
+        _email_tokens.pop(k, None)
+
+
+# ---------------------------------------------------------------------------
 # Rate limiter for login endpoint (fixed window per IP)
 # ---------------------------------------------------------------------------
 _login_attempts: dict[str, tuple[int, float]] = {}  # ip -> (count, window_start)
@@ -154,10 +193,23 @@ def get_current_api_key_hash(agent_id: int) -> Optional[str]:
 async def get_current_user(
     x_admin_key: str = Header(default="", alias="X-Admin-Key"),
     x_user_token: str = Header(default="", alias="X-User-Token"),
+    x_email_token: str = Header(default="", alias="X-Email-Token"),
     request: Request = None,
 ) -> AuthContext:
-    """Dual-mode auth: admin via X-Admin-Key, user via X-User-Token."""
-    # Try user token first
+    """Tri-mode auth: admin via X-Admin-Key, user via X-User-Token, email via X-Email-Token."""
+    # Try email token first
+    if x_email_token:
+        result = verify_email_token(x_email_token)
+        if result is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired email token")
+        user_id, email, agent_id = result
+        if agent_id is not None:
+            request.state.agent_id = agent_id
+        request.state.email_user_id = user_id
+        request.state.email = email
+        return AuthContext(is_admin=False, agent_id=agent_id)
+
+    # Try user token (API key based)
     if x_user_token:
         result = verify_user_token(x_user_token)
         if result is None:

@@ -436,3 +436,52 @@ class AgentApiKeyResponse(BaseModel):
 class MessageResponse(BaseModel):
     message: str
     detail: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Email/Password User Auth
+# ---------------------------------------------------------------------------
+class EmailLoginRequest(BaseModel):
+    email: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+class UserRegisterRequest(BaseModel):
+    email: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=6, max_length=256)
+    display_name: str = Field("", max_length=100)
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    display_name: str
+    agent_id: Optional[int] = None
+    is_active: bool
+    created_at: Optional[str] = None
+    provisioning_status: str = "not_started"
+    provisioning_error: Optional[str] = None
+
+
+class UserListResponse(BaseModel):
+    users: list[UserResponse]
+
+
+class ActivateUserRequest(BaseModel):
+    agent_id: int = Field(..., ge=0)
+
+
+class UpdateUserRequest(BaseModel):
+    display_name: Optional[str] = Field(None, max_length=100)
+    is_active: Optional[bool] = None
+
+
+class WebUILoginResponse(BaseModel):
+    url: str
+    email: str = ""
+    password: str = ""
+    provisioning_status: str = "completed"
+
+
+class RebindAgentRequest(BaseModel):
+    agent_id: int = Field(..., ge=1)

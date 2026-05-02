@@ -19,9 +19,9 @@ RUN npm run build -- --base /admin/
 # ============================================================================
 FROM python:3.12-slim AS runtime
 
-# Install curl for health checks
+# Install curl for health checks and libpq-dev for asyncpg
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends curl libpq-dev gcc && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
