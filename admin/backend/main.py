@@ -106,27 +106,21 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 
 class _SpaFallbackMiddleware(BaseHTTPMiddleware):
-    """Serve SPA index.html for browser navigation that hits API routes.
+    """Serve SPA index.html for browser navigation.
 
     The Ingress rewrite-target strips /admin prefix from ALL paths, so
-    browser requests like /admin/agents/2 become /agents/2, which matches
-    the API route instead of the SPA. This middleware detects browser
-    navigation (Accept: text/html) and serves the SPA instead.
+    browser requests like /admin/agents/2 become /agents/2. The Accept
+    header distinguishes browser navigation (text/html) from API calls
+    (application/json or fetch/XHR). Browser requests always get the SPA;
+    the SPA then makes authenticated API calls via fetch.
     """
-
-    # Paths that should always go to API (even from browser)
-    API_ONLY_PREFIXES = ("/health", "/agents", "/cluster", "/settings", "/templates", "/swarm", "/update-key", "/user", "/orchestrator")
 
     async def dispatch(self, request: Request, call_next):
         accept = request.headers.get("accept", "")
         path = request.url.path
 
-        # Only intercept GET requests that want HTML
+        # Only intercept GET requests that want HTML (browser navigation)
         if request.method != "GET" or "text/html" not in accept:
-            return await call_next(request)
-
-        # Skip API routes (K8s probes and all backend endpoints)
-        if any(path.startswith(p) for p in self.API_ONLY_PREFIXES) or path.startswith("/admin/"):
             return await call_next(request)
 
         # Try static assets first
@@ -137,7 +131,7 @@ class _SpaFallbackMiddleware(BaseHTTPMiddleware):
             if file_path.is_file():
                 return FileResponse(file_path)
 
-        # Serve SPA index.html for all other browser navigation
+        # Serve SPA index.html for ALL browser navigation
         if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
             return FileResponse(STATIC_DIR / "index.html")
 
@@ -780,7 +774,7 @@ async def user_me(request: Request, _=user_auth):
 # Orchestrator Proxy
 # ===================================================================
 
-@app.get("/admin/api/orchestrator/capability")
+@app.get("/orchestrator/capability")
 async def orchestrator_capability():
     try:
         async with httpx.AsyncClient(timeout=5) as client:
@@ -790,7 +784,7 @@ async def orchestrator_capability():
         return {"enabled": False}
 
 
-@app.post("/admin/api/orchestrator/tasks", dependencies=[auth, admin_only])
+@app.post("/orchestrator/tasks", dependencies=[auth, admin_only])
 async def orchestrator_submit_task(request: Request):
     body = await request.json()
     # Validate body matches the expected schema
@@ -810,7 +804,7 @@ async def orchestrator_submit_task(request: Request):
         return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
 
 
-@app.get("/admin/api/orchestrator/tasks", dependencies=[auth, admin_only])
+@app.get("/orchestrator/tasks", dependencies=[auth, admin_only])
 async def orchestrator_list_tasks(request: Request):
     params = dict(request.query_params)
     if "limit" in params:
@@ -824,7 +818,7 @@ async def orchestrator_list_tasks(request: Request):
         return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
 
 
-@app.get("/admin/api/orchestrator/tasks/{task_id}", dependencies=[auth, admin_only])
+@app.get("/orchestrator/tasks/{task_id}", dependencies=[auth, admin_only])
 async def orchestrator_get_task(task_id: str):
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
@@ -834,7 +828,7 @@ async def orchestrator_get_task(task_id: str):
         return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
 
 
-@app.delete("/admin/api/orchestrator/tasks/{task_id}", dependencies=[auth, admin_only])
+@app.delete("/orchestrator/tasks/{task_id}", dependencies=[auth, admin_only])
 async def orchestrator_cancel_task(task_id: str):
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.delete(
@@ -844,7 +838,7 @@ async def orchestrator_cancel_task(task_id: str):
         return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
 
 
-@app.get("/admin/api/orchestrator/agents", dependencies=[auth, admin_only])
+@app.get("/orchestrator/agents", dependencies=[auth, admin_only])
 async def orchestrator_list_agents():
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
@@ -854,7 +848,7 @@ async def orchestrator_list_agents():
         return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
 
 
-@app.get("/admin/api/orchestrator/agents/{agent_id}/health", dependencies=[auth, admin_only])
+@app.get("/orchestrator/agents/{agent_id}/health", dependencies=[auth, admin_only])
 async def orchestrator_agent_health(agent_id: str):
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(

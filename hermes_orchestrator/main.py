@@ -343,7 +343,8 @@ async def _process_task(task_id: str):
     )
     try:
         run_id = await executor.submit_run(
-            chosen.gateway_url, task.prompt, task.instructions
+            chosen.gateway_url, task.prompt, task.instructions,
+            headers=chosen.gateway_headers(),
         )
         await loop.run_in_executor(
             None, partial(task_store.update, task_id, status="executing", run_id=run_id)
@@ -352,7 +353,8 @@ async def _process_task(task_id: str):
             None, partial(task_store.update, task_id, status="streaming")
         )
         run_result = await executor.consume_run_events(
-            chosen.gateway_url, run_id, task.timeout_seconds
+            chosen.gateway_url, run_id, task.timeout_seconds,
+            headers=chosen.gateway_headers(),
         )
         if run_result.status == "completed":
             result = executor.extract_result(

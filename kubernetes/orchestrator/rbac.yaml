@@ -16,6 +16,10 @@ rules:
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["hermes-gateway-1-secret", "hermes-gateway-2-secret", "hermes-gateway-3-secret"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -16,13 +16,44 @@ GATEWAY_LABEL = "app.kubernetes.io/component=gateway"
 class AgentDiscoveryService:
     def __init__(self, config: OrchestratorConfig):
         self._config = config
+        self._api_key_cache: dict[str, str] = {}
 
-    async def discover_pods(self) -> list[AgentProfile]:
+    async def _load_k8s_client(self):
         from kubernetes_asyncio import client, config as k8s_config
         try:
             k8s_config.load_incluster_config()
         except Exception:
             await k8s_config.load_kube_config()
+        return client
+
+    def _extract_agent_name(self, pod) -> str:
+        """Extract gateway deployment name from pod (e.g. 'hermes-gateway-1' from 'hermes-gateway-1-abc123')."""
+        pod_name = pod.metadata.name
+        parts = pod_name.rsplit("-", 2)
+        if len(parts) >= 3:
+            return "-".join(parts[:-2])
+        return pod_name
+
+    async def _get_api_key(self, agent_name: str) -> str:
+        """Read API key from K8s secret for the given agent."""
+        if agent_name in self._api_key_cache:
+            return self._api_key_cache[agent_name]
+        try:
+            client = await self._load_k8s_client()
+            api = client.CoreV1Api()
+            secret_name = f"{agent_name}-secret"
+            secret = await api.read_namespaced_secret(secret_name, self._config.k8s_namespace)
+            import base64
+            key = base64.b64decode(secret.data.get("api_key", "")).decode()
+            await api.api_client.close()
+            self._api_key_cache[agent_name] = key
+            return key
+        except Exception as e:
+            logger.warning("Failed to read API key for %s: %s", agent_name, e)
+            return self._config.gateway_api_key
+
+    async def discover_pods(self) -> list[AgentProfile]:
+        client = await self._load_k8s_client()
         api = client.CoreV1Api()
         pods = await api.list_namespaced_pod(
             namespace=self._config.k8s_namespace,
@@ -32,11 +63,15 @@ class AgentDiscoveryService:
         for pod in pods.items:
             if pod.status.phase != "Running" or not pod.status.pod_ip:
                 continue
-            profiles.append(self._pod_to_profile(pod))
+            agent_name = self._extract_agent_name(pod)
+            api_key = await self._get_api_key(agent_name)
+            profile = self._pod_to_profile(pod)
+            profile.api_key = api_key
+            profiles.append(profile)
         await api.api_client.close()
         return profiles
 
-    async def discover_capabilities(self, gateway_url: str) -> list[AgentCapability]:
+    async def discover_capabilities(self, gateway_url: str, headers: dict | None = None) -> list[AgentCapability]:
         import aiohttp
 
         capabilities = []
@@ -44,7 +79,7 @@ class AgentDiscoveryService:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     f"{gateway_url}/v1/models",
-                    headers=self._config.gateway_headers,
+                    headers=headers or self._config.gateway_headers,
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     if resp.status != 200:

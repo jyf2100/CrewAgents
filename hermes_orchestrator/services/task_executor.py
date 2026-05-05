@@ -29,12 +29,12 @@ class TaskExecutor:
     def __init__(self, config: OrchestratorConfig):
         self._config = config
 
-    async def submit_run(self, gateway_url: str, prompt: str, instructions: str = "") -> str:
+    async def submit_run(self, gateway_url: str, prompt: str, instructions: str = "", *, headers: dict | None = None) -> str:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{gateway_url}/v1/runs",
                 json={"input": prompt, "instructions": instructions},
-                headers=self._config.gateway_headers,
+                headers=headers or self._config.gateway_headers,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status == 429:
@@ -45,7 +45,7 @@ class TaskExecutor:
                 data = await resp.json()
                 return data["run_id"]
 
-    async def consume_run_events(self, gateway_url: str, run_id: str, max_wait: float = 0) -> RunResult:
+    async def consume_run_events(self, gateway_url: str, run_id: str, max_wait: float = 0, *, headers: dict | None = None) -> RunResult:
         if max_wait <= 0:
             max_wait = self._config.task_max_wait
         deadline = time.monotonic() + max_wait
@@ -54,7 +54,7 @@ class TaskExecutor:
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{gateway_url}/v1/runs/{run_id}/events",
-                headers=self._config.gateway_headers,
+                headers=headers or self._config.gateway_headers,
                 timeout=aiohttp.ClientTimeout(total=max_wait),
             ) as resp:
                 if resp.status != 200:
