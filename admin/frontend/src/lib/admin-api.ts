@@ -62,7 +62,7 @@ export function getAuthHeaders(): Record<string, string> {
   return { "X-Admin-Key": key };
 }
 
-function clearAuth(): void {
+export function clearAuth(): void {
   const mode = getAuthMode();
   if (mode === "email") {
     localStorage.removeItem("admin_email_token");
@@ -504,6 +504,31 @@ export interface SkillEntry {
   tags?: string[];
 }
 
+
+// ---------------------------------------------------------------------------
+// File Browser
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  name: string;
+  type: "d" | "f" | "l";
+  size: number;
+}
+
+export interface FileListResponse {
+  path: string;
+  entries: FileEntry[];
+}
+
+export interface FileReadResponse {
+  path: string;
+  content: string | null;
+  size: number;
+  truncated: boolean;
+  binary?: boolean;
+  message?: string;
+}
+
 // ---------------------------------------------------------------------------
 // API methods
 // ---------------------------------------------------------------------------
@@ -911,5 +936,14 @@ export const adminApi = {
   // -- Orchestrator Skill Tags --
   getSkillTags(): Promise<{ tags: string[]; domain_distribution: Record<string, number> }> {
     return adminFetch("/orchestrator/skill-tags");
+  },
+
+  // -- File Browser --
+  listFiles(agentId: number, path: string): Promise<FileListResponse> {
+    return adminFetch(`/agents/${agentId}/files/list?path=${encodeURIComponent(path)}`);
+  },
+
+  readFile(agentId: number, path: string): Promise<FileReadResponse> {
+    return adminFetch(`/agents/${agentId}/files/read?path=${encodeURIComponent(path)}`);
   },
 };

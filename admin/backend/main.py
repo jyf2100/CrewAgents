@@ -45,6 +45,7 @@ from templates import TemplateGenerator, deployment_name
 from weixin import stream_weixin_qr, start_qr_session, end_qr_session, read_weixin_status, unbind_weixin
 from swarm_routes import router as swarm_router
 from terminal import router as terminal_router
+from file_browser import router as file_browser_router
 from user_routes import router as user_router
 from database import AsyncSessionLocal
 from db_models import AgentMetadata as AgentMetadataORM
@@ -98,6 +99,7 @@ app.state.admin_key = ADMIN_KEY
 # Include swarm router
 app.include_router(swarm_router)
 app.include_router(terminal_router)
+app.include_router(file_browser_router)
 app.include_router(user_router)
 
 
@@ -110,7 +112,7 @@ app.add_middleware(
     allow_origins=ADMIN_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "X-Admin-Key", "X-Internal-Token"],
+    allow_headers=["Authorization", "Content-Type", "X-Admin-Key", "X-User-Token", "X-Email-Token", "X-Internal-Token"],
 )
 
 

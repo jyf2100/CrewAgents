@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from typing import Optional
 
@@ -8,6 +9,8 @@ from kubernetes.client import (
     V1Deployment, V1Service, V1Secret, V1Pod,
     V1ObjectMeta, AppsV1Api, CoreV1Api, NetworkingV1Api,
 )
+
+logger = logging.getLogger("hermes-admin.k8s")
 
 K8S_API_TIMEOUT = 30
 
@@ -315,12 +318,12 @@ class K8sClient:
             timeout=K8S_API_TIMEOUT,
         )
 
-    async def read_file_from_pod(self, pod_name: str, path: str) -> tuple[bytes, str]:
-        """Read a file from a pod via exec. Returns (content_bytes, error_msg).
-        Uses base64 encoding to safely handle binary files."""
+    async def get_file_size(self, pod_name: str, path: str) -> int:
+        """Get file size in pod without reading content. Returns -1 on error."""
         from kubernetes.stream import stream as k8s_stream
-        import base64
-        cmd = ["sh", "-c", f"if [ -f '{path}' ] && [ -r '{path}' ]; then base64 '{path}'; else echo '__NOT_FOUND__'; fi"]
+        import shlex
+        safe = shlex.quote(path)
+        cmd = ["sh", "-c", f"stat -c%s {safe} 2>/dev/null || echo -1"]
         try:
             result = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -331,12 +334,57 @@ class K8sClient:
                     command=cmd,
                     stdin=False,
                     stdout=True,
-                    stderr=True,
+                    stderr=False,
+                    tty=False,
+                    _preload_content=True,
+                ),
+                timeout=10,
+            )
+            size = int(result.strip())
+            return max(size, -1)
+        except Exception:
+            return -1
+
+    async def read_file_from_pod(self, pod_name: str, path: str) -> tuple[bytes, str]:
+        """Read a file from a pod via exec. Returns (content_bytes, error_msg).
+        Uses base64 encoding to safely handle binary files.
+        Resolves symlinks inside the pod via realpath to prevent blocked-prefix bypass."""
+        from kubernetes.stream import stream as k8s_stream
+        import base64
+        import shlex
+        safe = shlex.quote(path)
+        cmd = ["sh", "-c", f"""realpath=$(/usr/bin/realpath {safe} 2>/dev/null || echo {safe})
+allowed=0
+for p in /home /tmp /var/log; do
+  case "$realpath" in
+    $p|$p/*) allowed=1; break ;;
+  esac
+done
+if [ "$allowed" = "0" ]; then
+  echo '__BLOCKED__'
+elif [ -f "$realpath" ] && [ -r "$realpath" ]; then
+  base64 "$realpath"
+else
+  echo '__NOT_FOUND__'
+fi"""]
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    k8s_stream,
+                    self.core_api.connect_get_namespaced_pod_exec,
+                    name=pod_name,
+                    namespace=self.namespace,
+                    command=cmd,
+                    stdin=False,
+                    stdout=True,
+                    stderr=False,  # Discard stderr to prevent contamination
                     tty=False,
                     _preload_content=True,
                 ),
                 timeout=30,
             )
+            if "__BLOCKED__" in result:
+                return b"", "Access to this path is not allowed"
             if "__NOT_FOUND__" in result:
                 return b"", "File not found or not readable"
             return base64.b64decode(result.strip()), ""
@@ -344,3 +392,82 @@ class K8sClient:
             return b"", "Timeout reading file"
         except Exception as e:
             return b"", str(e)
+
+    async def list_dir(self, pod_name: str, path: str) -> list[dict]:
+        """List directory contents in a pod. Returns [{name, type, size}].
+        type is 'd' (directory), 'f' (file), 'l' (symlink).
+        Resolves symlinks inside the pod via realpath to prevent blocked-prefix bypass.
+        """
+        from kubernetes.stream import stream as k8s_stream
+        import shlex
+        safe = shlex.quote(path)
+        cmd = [
+            "sh", "-c",
+            f"""realpath=$(/usr/bin/realpath {safe} 2>/dev/null || echo {safe})
+allowed=0
+for p in /home /tmp /var/log; do
+  case "$realpath" in
+    $p|$p/*) allowed=1; break ;;
+  esac
+done
+if [ "$allowed" = "0" ]; then echo '__BLOCKED__'; exit 0; fi
+if [ ! -d "$realpath" ]; then echo '__NOT_DIR__'; exit 0; fi
+cd "$realpath"
+for f in * .*; do
+  [ "$f" = "." ] && continue
+  [ "$f" = ".." ] && continue
+  [ -e "$f" ] || [ -L "$f" ] || continue
+  if [ -L "$f" ]; then
+    printf 'l\\x01%s\\x010\\n' "$f"
+  elif [ -d "$f" ]; then
+    printf 'd\\x01%s\\x010\\n' "$f"
+  else
+    size=$(stat -c%s "$f" 2>/dev/null || echo 0)
+    printf 'f\\x01%s\\x01%s\\n' "$f" "$size"
+  fi
+done""",
+        ]
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    k8s_stream,
+                    self.core_api.connect_get_namespaced_pod_exec,
+                    name=pod_name,
+                    namespace=self.namespace,
+                    command=cmd,
+                    stdin=False,
+                    stdout=True,
+                    stderr=False,  # Discard stderr to prevent contamination
+                    tty=False,
+                    _preload_content=True,
+                ),
+                timeout=15,
+            )
+            if "__BLOCKED__" in result:
+                logger.warning("list_dir blocked for pod %s path %s (resolved to blocked prefix)", pod_name, path)
+                return []
+            if "__NOT_DIR__" in result:
+                return []
+            entries = []
+            for line in result.strip().splitlines():
+                line = line.strip()
+                if not line or "\x01" not in line:
+                    continue
+                parts = line.split("\x01", 2)
+                if len(parts) != 3:
+                    continue
+                entry_type, name, size_str = parts
+                if not name:
+                    continue
+                try:
+                    size = int(size_str)
+                except ValueError:
+                    size = 0
+                entries.append({"name": name, "type": entry_type, "size": size})
+            entries.sort(key=lambda e: (0 if e["type"] == "d" else 1, e["name"].lower()))
+            return entries
+        except asyncio.TimeoutError:
+            return []
+        except Exception as e:
+            logger.warning("list_dir failed for pod %s path %s: %s", pod_name, path, e)
+            return []

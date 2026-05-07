@@ -2,7 +2,7 @@ from __future__ import annotations
 import datetime
 import re
 from enum import Enum
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from constants import PROVIDER_URL_MAP
@@ -521,6 +521,29 @@ class AgentMetadataInternalResponse(BaseModel):
     role: str
     domain: str = "generalist"
     skills: list[str] = []
+
+
+# ---------------------------------------------------------------------------
+# File Browser
+# ---------------------------------------------------------------------------
+class FileEntryResponse(BaseModel):
+    name: str
+    type: Literal["d", "f", "l"]
+    size: int
+
+
+class FileListResponse(BaseModel):
+    path: str
+    entries: list[FileEntryResponse]
+
+
+class FileReadResponse(BaseModel):
+    path: str
+    content: str | None = None
+    size: int
+    truncated: bool = False
+    binary: bool | None = None
+    message: str | None = None
 
 
 # ── Skill Reporting ──

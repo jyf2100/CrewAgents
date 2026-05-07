@@ -526,6 +526,30 @@ export interface Translations {
   preferredTags: string;
   preferredTagsHint: string;
   skillTagsPlaceholder: string;
+  // File Browser
+  fileBrowser: string;
+  fileBrowserTitle: string;
+  filePath: string;
+  fileName: string;
+  fileSize: string;
+  fileType: string;
+  fileEmpty: string;
+  fileNotFound: string;
+  fileLoading: string;
+  filePreview: string;
+  fileDownload: string;
+  fileParentDir: string;
+  fileDirUp: string;
+  fileGoTo: string;
+  fileGo: string;
+  fileNoPod: string;
+  fileNoPodDesc: string;
+  fileBinary: string;
+  fileTooLarge: string;
+  fileDefaultPath: string;
+  fileItemSingle: string;
+  fileItemPlural: string;
+  fileDownloading: string;
 }
 
 export const zh: Translations = {
@@ -1079,4 +1103,29 @@ export const zh: Translations = {
   preferredTags: "偏好标签",
   preferredTagsHint: "用于加权路由加分（非硬约束）",
   skillTagsPlaceholder: "输入标签搜索...",
+
+  // File Browser
+  fileBrowser: "文件浏览",
+  fileBrowserTitle: "Pod 文件浏览",
+  filePath: "路径",
+  fileName: "名称",
+  fileSize: "大小",
+  fileType: "类型",
+  fileEmpty: "目录为空",
+  fileNotFound: "文件不存在或不可读",
+  fileLoading: "加载中...",
+  filePreview: "文件预览",
+  fileDownload: "下载",
+  fileParentDir: "上级目录",
+  fileDirUp: "返回上级",
+  fileGoTo: "跳转到",
+  fileGo: "前往",
+  fileNoPod: "Agent 未运行",
+  fileNoPodDesc: "文件浏览需要 Agent Pod 处于运行状态",
+  fileBinary: "二进制文件，请下载查看",
+  fileTooLarge: "文件过大，请下载查看",
+  fileDefaultPath: "/home/user/hermes",
+  fileItemSingle: "个项",
+  fileItemPlural: "个项",
+  fileDownloading: "下载中...",
 };
