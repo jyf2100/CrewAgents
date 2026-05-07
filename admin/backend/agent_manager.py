@@ -28,6 +28,8 @@ from k8s_client import K8sClient
 from config_manager import ConfigManager
 from constants import SECRET_PATTERNS, PROVIDER_URL_MAP, format_age, determine_api_mode, resolve_agent_provider, strip_v1_suffix, is_bearer_auth_endpoint
 from templates import deployment_name
+from database import AsyncSessionLocal
+from db_models import AgentMetadata, AgentSkill, ReportIdRecord
 
 logger = logging.getLogger(__name__)
 
@@ -375,6 +377,21 @@ class AgentManager:
             step.message = f"Status check skipped: {e}"
 
         created = True  # Resources created successfully
+
+        # Write metadata to PostgreSQL (best-effort, non-blocking)
+        # Use merge() so that re-creating an agent whose row already exists
+        # does not raise a primary-key violation.
+        try:
+            async with AsyncSessionLocal() as db_session:
+                metadata = AgentMetadata(
+                    agent_number=agent_num,
+                    display_name=req.display_name or "",
+                )
+                await db_session.merge(metadata)
+                await db_session.commit()
+        except Exception as e:
+            logger.warning("Failed to write AgentMetadata for agent %s: %s", agent_num, e)
+
         return CreateAgentResponse(agent_number=agent_num, name=name, created=created, steps=steps)
 
     # --- Delete Agent ---
@@ -408,6 +425,24 @@ class AgentManager:
             logger.warning("Failed to delete secret %s: %s", secret_name, e)
         data_dir = f"/data/hermes/agent{agent_id}"
         shutil.rmtree(data_dir, ignore_errors=True)
+
+        # Cleanup metadata + skills + report records (best-effort)
+        try:
+            async with AsyncSessionLocal() as db_session:
+                from sqlalchemy import delete as sa_delete
+                await db_session.execute(
+                    sa_delete(AgentSkill).where(AgentSkill.agent_number == agent_id)
+                )
+                await db_session.execute(
+                    sa_delete(ReportIdRecord).where(ReportIdRecord.agent_number == agent_id)
+                )
+                row = await db_session.get(AgentMetadata, agent_id)
+                if row:
+                    await db_session.delete(row)
+                await db_session.commit()
+        except Exception as e:
+            logger.warning("Failed to delete metadata/skills for agent %s: %s", agent_id, e)
+
         return MessageResponse(message=f"Agent {name} deleted")
 
     # --- Restart Agent ---

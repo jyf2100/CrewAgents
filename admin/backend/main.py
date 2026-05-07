@@ -34,15 +34,25 @@ from models import (
     UpdateAdminKeyRequest, UpdateTemplateRequest, SettingsResponse,
     DefaultResourceLimits, TestAgentApiResponse,
     WeixinStatusResponse, WeixinActionResponse,
+    AgentMetadataUpdate,
+    AgentMetadataResponse, AgentMetadataInternalResponse,
+    SkillReportItem, SkillReportRequest, SkillReportResponse,
 )
 from k8s_client import K8sClient
 from agent_manager import AgentManager
 from config_manager import ConfigManager
-from templates import TemplateGenerator
+from templates import TemplateGenerator, deployment_name
 from weixin import stream_weixin_qr, start_qr_session, end_qr_session, read_weixin_status, unbind_weixin
 from swarm_routes import router as swarm_router
 from terminal import router as terminal_router
 from user_routes import router as user_router
+from database import AsyncSessionLocal
+from db_models import AgentMetadata as AgentMetadataORM
+from db_models import AgentSkill as AgentSkillORM
+from db_models import ReportIdRecord as ReportIdRecordORM
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 try:
     from auth import auth as user_auth, get_effective_agent_id, cleanup_expired_user_tokens
 except ImportError:
@@ -64,11 +74,16 @@ if not ORCHESTRATOR_API_KEY:
     logger_orch = logging.getLogger("hermes-admin.orchestrator")
     logger_orch.warning("ORCHESTRATOR_API_KEY not set — orchestrator proxy will not authenticate")
 
-# Shared httpx client for orchestrator proxy (connection pooling)
-_orch_client: httpx.AsyncClient | None = None
+INTERNAL_TOKEN = os.getenv("ADMIN_INTERNAL_TOKEN", "")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("hermes-admin")
+
+if not INTERNAL_TOKEN:
+    logger.warning("ADMIN_INTERNAL_TOKEN not set — internal API will reject all requests")
+
+# Shared httpx client for orchestrator proxy (connection pooling)
+_orch_client: httpx.AsyncClient | None = None
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -95,7 +110,7 @@ app.add_middleware(
     allow_origins=ADMIN_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "X-Admin-Key"],
+    allow_headers=["Authorization", "Content-Type", "X-Admin-Key", "X-Internal-Token"],
 )
 
 
@@ -192,6 +207,16 @@ async def _admin_only_dep(request: Request) -> None:
 
 
 admin_only = Depends(_admin_only_dep)
+
+
+def _verify_internal_token(request: Request) -> None:
+    """Verify service-to-service auth via X-Internal-Token header."""
+    token = request.headers.get("X-Internal-Token", "")
+    if not INTERNAL_TOKEN or not hmac.compare_digest(token, INTERNAL_TOKEN):
+        raise HTTPException(status_code=401, detail="Invalid internal token")
+
+
+internal_auth = Depends(_verify_internal_token)
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +357,92 @@ async def stop_agent(request: Request, agent_id: int):
 async def start_agent(request: Request, agent_id: int):
     """Start an agent by scaling to 1 replica."""
     return await manager.scale_agent(_aid(request, agent_id), replicas=1, action="start")
+
+
+# ===================================================================
+# Agent Metadata (tags / role)
+# ===================================================================
+@app.get(f"{API_PREFIX}/agents/metadata", response_model=list[AgentMetadataResponse], dependencies=[auth], tags=["agents-metadata"])
+async def list_agent_metadata(request: Request):
+    """Return metadata (tags/role/domain/skills) for all agents."""
+    async with AsyncSessionLocal() as session:
+        user_aid = getattr(request.state, 'agent_id', None)
+        if user_aid is not None:
+            # User mode: only return own metadata
+            result = await session.execute(
+                select(AgentMetadataORM).where(AgentMetadataORM.agent_number == user_aid)
+            )
+        else:
+            result = await session.execute(select(AgentMetadataORM))
+        rows = result.scalars().all()
+        return [
+            {
+                "agent_number": r.agent_number,
+                "tags": r.tags or [],
+                "role": r.role or "generalist",
+                "domain": _resolve_domain(r),
+                "skills": r.skills or [],
+                "display_name": r.display_name or "",
+                "description": r.description or "",
+                "updated_at": r.updated_at.timestamp() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+
+
+@app.get(f"{API_PREFIX}/agents/{{agent_id}}/metadata", response_model=AgentMetadataResponse, dependencies=[auth], tags=["agents-metadata"])
+async def get_agent_metadata(request: Request, agent_id: int):
+    """Return metadata for a single agent."""
+    aid = _aid(request, agent_id)
+    async with AsyncSessionLocal() as session:
+        row = await session.get(AgentMetadataORM, aid)
+        if not row:
+            raise HTTPException(404, "Agent metadata not found")
+        return {
+            "agent_number": row.agent_number,
+            "tags": row.tags or [],
+            "role": row.role or "generalist",
+            "domain": _resolve_domain(row),
+            "skills": row.skills or [],
+            "display_name": row.display_name or "",
+            "description": row.description or "",
+            "updated_at": row.updated_at.timestamp() if row.updated_at else None,
+        }
+
+
+@app.put(f"{API_PREFIX}/agents/{{agent_id}}/metadata", dependencies=[auth, admin_only], tags=["agents-metadata"])
+async def update_agent_metadata(agent_id: int, body: AgentMetadataUpdate):
+    """Create or update agent metadata (tags, role, domain, display_name, description)."""
+    # Verify agent exists in K8s
+    dep = await k8s.get_deployment(deployment_name(agent_id))
+    if dep is None:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    values = {"agent_number": agent_id}
+    if body.tags is not None:
+        values["tags"] = body.tags
+    if body.role is not None:
+        values["role"] = body.role
+    if body.domain is not None:
+        values["domain"] = body.domain
+    if body.display_name is not None:
+        values["display_name"] = body.display_name
+    if body.description is not None:
+        values["description"] = body.description
+
+    async with AsyncSessionLocal() as session:
+        stmt = pg_insert(AgentMetadataORM).values(**values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["agent_number"],
+            set_={k: stmt.excluded[k] for k in values if k != "agent_number"},
+        )
+        await session.execute(stmt)
+        await session.commit()
+        row = await session.get(AgentMetadataORM, agent_id)
+        return {
+            "status": "updated",
+            "updated_at": row.updated_at.timestamp() if row and row.updated_at else None,
+        }
 
 
 # ===================================================================
@@ -690,49 +801,8 @@ async def test_llm_connection(req: TestLLMRequest):
 
 
 # ===================================================================
-# User Authentication (login / logout / me)
+# User Authentication (logout / me — login is in user_routes.py)
 # ===================================================================
-
-@app.post(f"{API_PREFIX}/user/login", tags=["user"])
-async def user_login(request: Request, body: dict):
-    """User login with agent API key."""
-    if user_auth is None:
-        raise HTTPException(status_code=501, detail="User auth module not loaded")
-
-    api_key = body.get("api_key", "")
-    if not api_key:
-        raise HTTPException(status_code=400, detail="API key is required")
-
-    # --- rate limiting ---
-    from auth import check_login_rate, find_agent_by_api_key, mint_user_token
-
-    client_ip = request.client.host if request.client else "unknown"
-    if check_login_rate(client_ip):
-        logger.warning("Login rate limited for IP: %s", client_ip)
-        raise HTTPException(status_code=429, detail="Too many login attempts, please try again later")
-
-    # --- find agent by API key ---
-    agent_id = await find_agent_by_api_key(api_key)
-    if agent_id is None:
-        logger.info("Login failed for IP %s: no matching agent", client_ip)
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-    # --- mint user token ---
-    token = mint_user_token(agent_id, api_key)
-
-    # --- resolve display name ---
-    display_name = f"Agent #{agent_id}"
-    try:
-        deployment_name = f"hermes-gateway-{agent_id}" if agent_id > 0 else "hermes-gateway"
-        deploy = await k8s.get_deployment(deployment_name)
-        if deploy and deploy.metadata.annotations:
-            display_name = deploy.metadata.annotations.get("hermes/display-name", display_name)
-    except Exception:
-        pass
-
-    logger.info("User login success: agent_id=%d, IP=%s", agent_id, client_ip)
-    return {"token": token, "agent_id": agent_id, "display_name": display_name, "expires_in": 7200}
-
 
 @app.post(f"{API_PREFIX}/user/logout", tags=["user"])
 async def user_logout(request: Request, _=user_auth):
@@ -856,6 +926,213 @@ async def orchestrator_agent_health(agent_id: str):
             headers={"Authorization": f"Bearer {ORCHESTRATOR_API_KEY}"},
         )
         return StarletteResponse(content=resp.content, status_code=resp.status_code, media_type="application/json")
+
+
+# ---------------------------------------------------------------------------
+# Domain / Skills helpers
+# ---------------------------------------------------------------------------
+
+# Mapping from legacy role values to domain values (transition period)
+_ROLE_TO_DOMAIN: dict[str, str] = {
+    "generalist": "generalist",
+    "coder": "code",
+    "analyst": "data",
+}
+
+
+def _resolve_domain(row: AgentMetadataORM) -> str:
+    """Resolve domain with fallback to role mapping during transition period."""
+    domain = getattr(row, "domain", None)
+    if domain:
+        return domain
+    role = getattr(row, "role", None) or "generalist"
+    return _ROLE_TO_DOMAIN.get(role, "generalist")
+
+
+# ===================================================================
+# Internal API (service-to-service, used by Orchestrator)
+# ===================================================================
+@app.get("/internal/agents/metadata", response_model=list[AgentMetadataInternalResponse], dependencies=[internal_auth], tags=["internal"])
+async def internal_all_metadata():
+    """Return lightweight metadata for all agents (for Orchestrator discovery)."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(AgentMetadataORM))
+        rows = result.scalars().all()
+        return [
+            {
+                "agent_number": r.agent_number,
+                "tags": r.tags or [],
+                "role": r.role or "generalist",
+                "domain": _resolve_domain(r),
+                "skills": r.skills or [],
+            }
+            for r in rows
+        ]
+
+
+# ===================================================================
+# Skill Reporting (Internal API — agent self-reporting)
+# ===================================================================
+
+@app.post(
+    "/internal/agents/{agent_number}/skills/report",
+    response_model=SkillReportResponse,
+    dependencies=[internal_auth],
+    tags=["internal"],
+)
+async def report_agent_skills(agent_number: int, body: SkillReportRequest):
+    """Accept a full-replace skill report from an agent gateway.
+
+    Idempotency: duplicate report_id returns "unchanged".
+    Semantics: DELETE old skills + INSERT new skills in a single transaction,
+    then aggregate tags into agent_metadata.skills JSONB.
+    """
+    async with AsyncSessionLocal() as session:
+        # --- Idempotency check (atomic via INSERT ... ON CONFLICT DO NOTHING) ---
+        if body.report_id:
+            idemp_stmt = pg_insert(ReportIdRecordORM).values(
+                report_id=body.report_id,
+                agent_number=agent_number,
+                skills_count=0,
+                tags_aggregated=[],
+            )
+            idemp_stmt = idemp_stmt.on_conflict_do_nothing(index_elements=["report_id"])
+            idemp_result = await session.execute(idemp_stmt)
+            await session.commit()
+            if idemp_result.rowcount == 0:
+                # Already processed — return cached result
+                existing = await session.get(ReportIdRecordORM, body.report_id)
+                return SkillReportResponse(
+                    status="unchanged",
+                    skills_count=existing.skills_count if existing else 0,
+                    tags_aggregated=existing.tags_aggregated if existing else [],
+                )
+
+        # --- Validate skill_dir paths ---
+        for skill in body.skills:
+            if skill.skill_dir and (".." in skill.skill_dir or skill.skill_dir.startswith("/")):
+                raise HTTPException(400, f"Invalid skill_dir: {skill.skill_dir}")
+
+        # --- Collect aggregated tags across all incoming skills ---
+        all_tags: set[str] = set()
+        for skill in body.skills:
+            for tag in skill.tags:
+                all_tags.add(tag.lower())
+
+        tags_sorted = sorted(all_tags)
+
+        # --- Full-replace: DELETE old + INSERT new (single transaction) ---
+        await session.execute(
+            delete(AgentSkillORM).where(AgentSkillORM.agent_number == agent_number)
+        )
+
+        for skill in body.skills:
+            row = AgentSkillORM(
+                agent_number=agent_number,
+                skill_name=skill.name,
+                description=skill.description,
+                version=skill.version,
+                tags=[t.lower() for t in skill.tags],
+                skill_dir=skill.skill_dir,
+                content_hash=skill.content_hash,
+            )
+            session.add(row)
+
+        # --- Upsert agent_metadata.skills JSONB ---
+        meta = await session.get(AgentMetadataORM, agent_number)
+        if meta is None:
+            meta = AgentMetadataORM(agent_number=agent_number, skills=tags_sorted)
+            session.add(meta)
+        else:
+            meta.skills = tags_sorted
+
+        # --- Record report_id for dedup (atomic upsert) ---
+        if body.report_id:
+            dedup_stmt = pg_insert(ReportIdRecordORM).values(
+                report_id=body.report_id,
+                agent_number=agent_number,
+                skills_count=len(body.skills),
+                tags_aggregated=tags_sorted,
+            )
+            dedup_stmt = dedup_stmt.on_conflict_do_update(
+                index_elements=["report_id"],
+                set_={
+                    "skills_count": dedup_stmt.excluded.skills_count,
+                    "tags_aggregated": dedup_stmt.excluded.tags_aggregated,
+                },
+            )
+            await session.execute(dedup_stmt)
+
+        await session.commit()
+
+        return SkillReportResponse(
+            status="accepted",
+            skills_count=len(body.skills),
+            tags_aggregated=tags_sorted,
+        )
+
+
+# ===================================================================
+# Skill Queries (Frontend display)
+# ===================================================================
+
+@app.get(
+    f"{API_PREFIX}/agents/{{agent_id}}/skills",
+    response_model=list[SkillReportItem],
+    dependencies=[auth],
+    tags=["agents-metadata"],
+)
+async def get_agent_skills(agent_id: int):
+    """Return the installed skills for a single agent (for frontend MetadataCard)."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(AgentSkillORM)
+            .where(AgentSkillORM.agent_number == agent_id)
+            .order_by(AgentSkillORM.skill_name)
+        )
+        rows = result.scalars().all()
+        return [
+            SkillReportItem(
+                name=r.skill_name,
+                description=r.description or "",
+                version=r.version or "",
+                tags=r.tags or [],
+                skill_dir=r.skill_dir or "",
+                content_hash=r.content_hash or "",
+            )
+            for r in rows
+        ]
+
+
+@app.get(
+    f"{API_PREFIX}/orchestrator/skill-tags",
+    dependencies=[auth, admin_only],
+    tags=["orchestrator"],
+)
+async def orchestrator_skill_tags():
+    """Lightweight aggregation of all skill tags across all agents.
+
+    Returns de-duplicated tags and domain distribution for TaskSubmitPage
+    tag autocompletion. Does not expose agent-level detail.
+    """
+    async with AsyncSessionLocal() as session:
+        # Aggregate tags from all AgentSkill rows
+        result = await session.execute(select(AgentSkillORM.tags))
+        all_tags: set[str] = set()
+        for (tags_json,) in result.all():
+            for tag in (tags_json or []):
+                all_tags.add(tag.lower())
+
+        # Domain distribution from agent_metadata
+        meta_result = await session.execute(
+            select(AgentMetadataORM.domain, AgentMetadataORM.role)
+        )
+        domain_dist: dict[str, int] = {}
+        for domain_val, role_val in meta_result.all():
+            d = domain_val if domain_val else _ROLE_TO_DOMAIN.get(role_val or "generalist", "generalist")
+            domain_dist[d] = domain_dist.get(d, 0) + 1
+
+        return {"tags": sorted(all_tags), "domain_distribution": domain_dist}
 
 
 # ===================================================================

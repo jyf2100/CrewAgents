@@ -41,6 +41,21 @@ spec:
               value: http://172.32.153.184:40080
             - name: SWARM_REDIS_URL
               value: redis://:$(REDIS_PASSWORD)@hermes-redis:6379/0
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-redis-secret
+                  key: redis-password
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: database-url
+            - name: ADMIN_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-admin-internal-secret
+                  key: admin_internal_token
           resources:
             requests:
               cpu: 100m

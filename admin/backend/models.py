@@ -2,8 +2,8 @@ from __future__ import annotations
 import datetime
 import re
 from enum import Enum
-from typing import Any, Optional
-from pydantic import BaseModel, Field, field_validator
+from typing import Annotated, Any, Optional
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from constants import PROVIDER_URL_MAP
 
@@ -485,3 +485,61 @@ class WebUILoginResponse(BaseModel):
 
 class RebindAgentRequest(BaseModel):
     agent_id: int = Field(..., ge=1)
+
+
+# ── Agent Metadata ──
+
+TagStr = Annotated[str, StringConstraints(max_length=50, pattern=r"^[a-z0-9][a-z0-9_-]*$")]
+
+# Valid domain values (extensible)
+DOMAINS = ["generalist", "code", "data", "ops", "creative"]
+DOMAIN_PATTERN = "|".join(DOMAINS)
+
+
+class AgentMetadataUpdate(BaseModel):
+    tags: list[TagStr] = Field(default_factory=list, max_length=20)
+    role: str = Field(default="generalist", pattern=r"^(coder|analyst|generalist)$")
+    domain: str = Field(default="generalist", pattern=rf"^({DOMAIN_PATTERN})$")
+    display_name: str | None = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class AgentMetadataResponse(BaseModel):
+    agent_number: int
+    tags: list[str]
+    role: str
+    domain: str = "generalist"
+    skills: list[str] = []
+    display_name: str = ""
+    description: str = ""
+    updated_at: float | None = None
+
+
+class AgentMetadataInternalResponse(BaseModel):
+    agent_number: int
+    tags: list[str]
+    role: str
+    domain: str = "generalist"
+    skills: list[str] = []
+
+
+# ── Skill Reporting ──
+
+class SkillReportItem(BaseModel):
+    name: str = Field(..., max_length=64)
+    description: str = Field("", max_length=1024)
+    version: str = Field("", max_length=32)
+    tags: list[TagStr] = Field(default_factory=list, max_length=50)
+    skill_dir: str = Field("", max_length=512)
+    content_hash: str = Field("", max_length=64)
+
+
+class SkillReportRequest(BaseModel):
+    skills: list[SkillReportItem] = Field(default_factory=list, max_length=200)
+    report_id: str = Field("", max_length=128)
+
+
+class SkillReportResponse(BaseModel):
+    status: str          # "accepted" | "unchanged"
+    skills_count: int
+    tags_aggregated: list[str]

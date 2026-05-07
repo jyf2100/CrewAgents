@@ -142,12 +142,22 @@ class TemplateGenerator:
 
     def render_deployment(self, agent_number: int, secret_name: str,
                           resources: ResourceSpec, namespace: str = "hermes-agent",
-                          display_name: str | None = None) -> dict:
+                          display_name: str | None = None,
+                          tags: list[str] | None = None,
+                          role: str | None = None) -> dict:
         """Return a dict for K8s Deployment creation."""
         name = deployment_name(agent_number)
         metadata = {"name": name, "namespace": namespace}
         if display_name:
             metadata["annotations"] = {"hermes/display-name": display_name}
+
+        # Pod template annotations — orchestrator reads from pod.metadata.annotations
+        pod_annotations: dict[str, str] = {}
+        if tags:
+            pod_annotations["hermes-agent.io/capabilities"] = ",".join(tags)
+        if role:
+            pod_annotations["hermes-agent.io/role"] = role
+
         return {
             "apiVersion": "apps/v1",
             "kind": "Deployment",
@@ -156,7 +166,10 @@ class TemplateGenerator:
                 "replicas": 1,
                 "selector": {"matchLabels": {"app": name}},
                 "template": {
-                    "metadata": {"labels": {"app": name}},
+                    "metadata": {
+                        "labels": {"app": name},
+                        **({"annotations": pod_annotations} if pod_annotations else {}),
+                    },
                     "spec": {
                         "serviceAccountName": "hermes-gateway",
                         "containers": [{

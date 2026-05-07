@@ -419,6 +419,7 @@ export interface Translations {
   provisionPending: string;
   provisionFailed: string;
   provisionNotStarted: string;
+  provisionSkipped: string;
   registerSuccessWaitActivation: string;
 
   // Orchestrator
@@ -458,6 +459,73 @@ export interface Translations {
   orchestratorHealthCheck: string;
   orchestratorCurrentLoad: string;
   orchestratorMaxConcurrent: string;
+
+  // Orchestrator Routing
+  requiredTags: string;
+  requiredTagsHint: string;
+  routingInfo: string;
+  routingStrategy: string;
+  matchedTags: string;
+  fallback: string;
+  candidateScores: string;
+  role: string;
+  tags: string;
+  orchestratorAgentRole: string;
+  orchestratorAgentTags: string;
+  routingShadowInfo: string;
+  routingNoMatch: string;
+
+  // Orchestrator detail / overview shared
+  taskNotFound: string;
+  runId: string;
+  routingReason: string;
+  agent: string;
+  orchestratorActiveTasks: string;
+  orchestratorDoneCount: string;
+  orchestratorCircuit: string;
+  orchestratorLoadFailed: string;
+  orchestratorCancelFailed: string;
+  promptPlaceholder: string;
+  instructionsPlaceholder: string;
+  tokens: string;
+  duration: string;
+  score: string;
+  selectedCount: string;
+
+  // Agent Metadata
+  agentRole: string;
+  agentTags: string;
+  tagInputPlaceholder: string;
+  saveMetadata: string;
+  metadataSaved: string;
+  roleCoder: string;
+  roleAnalyst: string;
+  roleGeneralist: string;
+  editMetadata: string;
+  metadataDesc: string;
+
+  // Domain + Skills
+  domainLabel: string;
+  domainGeneralist: string;
+  domainCode: string;
+  domainCodeDesc: string;
+  domainData: string;
+  domainDataDesc: string;
+  domainOps: string;
+  domainOpsDesc: string;
+  domainCreative: string;
+  domainCreativeDesc: string;
+  installedSkills: string;
+  noInstalledSkills: string;
+  skillTags: string;
+  skillTagsRoutingHint: string;
+  freeTags: string;
+  freeTagsHint: string;
+  orchestratorAgentDomain: string;
+  orchestratorSkillCount: string;
+  preferredTags: string;
+  preferredTagsHint: string;
+  skillTagsPlaceholder: string;
 }
 
 export const zh: Translations = {
@@ -904,6 +972,7 @@ export const zh: Translations = {
   provisionPending: "配置中...",
   provisionFailed: "配置失败",
   provisionNotStarted: "未配置",
+  provisionSkipped: "WebUI 未配置",
   registerSuccessWaitActivation: "注册成功！请等待管理员激活您的账号并分配 Agent。激活后即可使用对话功能。",
 
   // Orchestrator
@@ -943,4 +1012,71 @@ export const zh: Translations = {
   orchestratorHealthCheck: "最近健康检查",
   orchestratorCurrentLoad: "当前负载",
   orchestratorMaxConcurrent: "最大并发",
+
+  // Orchestrator Routing
+  requiredTags: "必要标签",
+  requiredTagsHint: "Agent 必须同时具备所有选中的标签",
+  routingInfo: "路由信息",
+  routingStrategy: "策略",
+  matchedTags: "匹配标签",
+  fallback: "降级路由",
+  candidateScores: "候选得分",
+  role: "角色",
+  tags: "标签",
+  orchestratorAgentRole: "角色",
+  orchestratorAgentTags: "标签",
+  routingShadowInfo: "Shadow 信息",
+  routingNoMatch: "未匹配到可用 Agent",
+
+  // Orchestrator detail / overview shared
+  taskNotFound: "任务不存在",
+  runId: "运行 ID",
+  routingReason: "原因",
+  agent: "Agent",
+  orchestratorActiveTasks: "活跃任务",
+  orchestratorDoneCount: "已完成",
+  orchestratorCircuit: "熔断",
+  orchestratorLoadFailed: "加载数据失败",
+  orchestratorCancelFailed: "取消任务失败",
+  promptPlaceholder: "输入任务提示词...",
+  instructionsPlaceholder: "可选系统指令...",
+  tokens: "Token",
+  duration: "耗时",
+  score: "得分",
+  selectedCount: "{n} 已选: ",
+
+  // Agent Metadata
+  agentRole: "角色",
+  agentTags: "标签",
+  tagInputPlaceholder: "例如 python, tool-use",
+  saveMetadata: "保存",
+  metadataSaved: "标签已保存",
+  roleCoder: "编码",
+  roleAnalyst: "分析",
+  roleGeneralist: "通用",
+  editMetadata: "编辑元数据",
+  metadataDesc: "描述",
+
+  // Domain + Skills
+  domainLabel: "领域",
+  domainGeneralist: "通用",
+  domainCode: "编码",
+  domainCodeDesc: "软件开发、调试、代码审查",
+  domainData: "数据",
+  domainDataDesc: "数据分析、可视化、统计建模",
+  domainOps: "运维",
+  domainOpsDesc: "部署、监控、基础设施管理",
+  domainCreative: "创意",
+  domainCreativeDesc: "写作、设计、内容创作",
+  installedSkills: "已安装技能",
+  noInstalledSkills: "暂无已安装 Skills",
+  skillTags: "技能标签",
+  skillTagsRoutingHint: "用于智能路由",
+  freeTags: "自定义标签",
+  freeTagsHint: "用于搜索和分类",
+  orchestratorAgentDomain: "领域",
+  orchestratorSkillCount: "{n} 个技能",
+  preferredTags: "偏好标签",
+  preferredTagsHint: "用于加权路由加分（非硬约束）",
+  skillTagsPlaceholder: "输入标签搜索...",
 };

@@ -2,13 +2,20 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type {
   AgentDetail,
+  AgentMetadata,
   EnvVarEntry,
   HealthResponse,
   K8sEvent,
+  SkillEntry,
 } from "../lib/admin-api";
 import { adminApi, AdminApiError, getAuthMode } from "../lib/admin-api";
 import { useI18n } from "../hooks/useI18n";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DomainCardSelector } from "../components/DomainCardSelector";
+import { SkillList } from "../components/SkillList";
+import { TagCloud } from "../components/TagCloud";
+import { TagInput } from "../components/TagInput";
+import type { DomainValue } from "../components/domain-constants";
 import {
   formatBytes,
   formatMillicores,
@@ -579,6 +586,9 @@ function OverviewTab({ agent, onRegisterWeChat }: { agent: AgentDetail; onRegist
         <p className="text-xs text-text-secondary">{t.dataFromHealth}</p>
       </div>
 
+      {/* Agent Tags & Role */}
+      <MetadataCard agentId={agent.id} />
+
       {/* Metadata */}
       <div className="rounded-lg border border-border bg-surface p-4">
         <h3 className="text-sm font-medium mb-2 text-text-primary">{t.quickStats}</h3>
@@ -609,6 +619,166 @@ function StatusCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-border border-t border-t-accent-cyan/30 bg-surface p-3">
       <div className="text-xs text-text-secondary">{label}</div>
       <div className="text-sm font-medium mt-1 text-text-primary font-[family-name:var(--font-mono)]">{value}</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Agent Metadata Card (tags / role editor)
+// ---------------------------------------------------------------------------
+
+const TAG_PATTERN = /^[a-z0-9_-]+$/;
+const MAX_TAGS = 20;
+
+function MetadataCard({ agentId }: { agentId: number }) {
+  const { t } = useI18n();
+  const isUser = getAuthMode() === "user";
+
+  const [meta, setMeta] = useState<AgentMetadata | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // Edit state
+  const [domain, setDomain] = useState<DomainValue>("generalist");
+  const [tags, setTags] = useState<string[]>([]);
+
+  // Skills state
+  const [skills, setSkills] = useState<SkillEntry[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+
+  // Suggestions for TagInput (all known tags)
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    adminApi
+      .getAgentMetadata(agentId)
+      .then((m) => {
+        setMeta(m);
+        setDomain((m.domain as DomainValue) || "generalist");
+        setTags(m.tags || []);
+      })
+      .catch((err) => {
+        // 404 is fine — metadata not created yet
+        if (err instanceof AdminApiError && err.status === 404) {
+          setMeta(null);
+        } else {
+          // Log unexpected errors but don't crash the card
+          console.warn("Failed to load agent metadata:", err);
+          setMeta(null);
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [agentId]);
+
+  // Load skills
+  useEffect(() => {
+    setSkillsLoading(true);
+    adminApi
+      .getAgentSkills(agentId)
+      .then(setSkills)
+      .catch(() => setSkills([]))
+      .finally(() => setSkillsLoading(false));
+  }, [agentId]);
+
+  // Load skill tags for suggestions
+  useEffect(() => {
+    adminApi
+      .getSkillTags()
+      .then((res) => setTagSuggestions(res.tags))
+      .catch(() => setTagSuggestions([]));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await adminApi.updateAgentMetadata(agentId, {
+        tags,
+        domain,
+        role: domain, // transitional: send both during migration
+      });
+      showToast(t.metadataSaved);
+    } catch (err) {
+      showToast(getApiError(err, t.errorGeneric), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-border bg-surface p-4">
+        <p className="text-sm text-text-secondary">{t.loading}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-medium text-text-primary">{t.editMetadata}</h3>
+        {!isUser && (
+          <button
+            onClick={save}
+            disabled={saving}
+            className="h-8 px-3 text-xs rounded bg-accent-pink text-white hover:bg-accent-pink/90 disabled:opacity-50"
+          >
+            {saving ? "..." : t.saveMetadata}
+          </button>
+        )}
+      </div>
+
+      {/* Domain selector */}
+      <div className="mb-4">
+        <label className="text-xs text-text-secondary block mb-1.5">{t.domainLabel}</label>
+        <DomainCardSelector
+          value={domain}
+          onChange={(v) => setDomain(v)}
+          disabled={isUser}
+        />
+      </div>
+
+      {/* Installed Skills */}
+      <div className="mb-4">
+        <SkillList
+          skills={skills}
+          loading={skillsLoading}
+          onRefresh={() => {
+            setSkillsLoading(true);
+            adminApi
+              .getAgentSkills(agentId)
+              .then(setSkills)
+              .catch(() => setSkills([]))
+              .finally(() => setSkillsLoading(false));
+          }}
+        />
+      </div>
+
+      {/* Skill-based Tags (read-only) */}
+      {meta?.skills && meta.skills.length > 0 && (
+        <div className="mb-4">
+          <TagCloud
+            tags={meta.skills}
+            label={t.skillTags}
+            hint={t.skillTagsRoutingHint}
+          />
+        </div>
+      )}
+
+      {/* Free Tags (editable) */}
+      <div>
+        <label className="text-xs text-text-secondary block mb-1">{t.freeTags}</label>
+        <p className="text-[10px] text-text-muted mb-1.5">{t.freeTagsHint}</p>
+        {isUser ? (
+          <TagCloud tags={tags} />
+        ) : (
+          <TagInput
+            value={tags}
+            onChange={setTags}
+            suggestions={tagSuggestions}
+            placeholder={t.tagInputPlaceholder}
+          />
+        )}
+      </div>
     </div>
   );
 }

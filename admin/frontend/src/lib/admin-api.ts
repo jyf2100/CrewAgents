@@ -39,7 +39,9 @@ export function getAdminKey(): string {
 }
 
 export function getAuthMode(): AuthMode {
-  return (localStorage.getItem("admin_mode") as AuthMode) || "admin";
+  const VALID_MODES: AuthMode[] = ["admin", "user", "email"];
+  const stored = localStorage.getItem("admin_mode");
+  return (VALID_MODES.includes(stored as AuthMode) ? stored : "admin") as AuthMode;
 }
 
 export function setAuthMode(mode: AuthMode): void {
@@ -395,6 +397,17 @@ export interface TestAgentApiResponse {
 // Orchestrator types
 // ---------------------------------------------------------------------------
 
+export interface RoutingInfo {
+  strategy: string;
+  chosen_agent_id: string | null;
+  scores: Record<string, number>;
+  matched_tags: string[];
+  fallback: boolean;
+  reason: string;
+  shadow_smart_agent_id?: string | null;
+  shadow_smart_score?: number | null;
+}
+
 export interface OrchestratorTask {
   task_id: string;
   status: "submitted" | "queued" | "assigned" | "executing" | "streaming" | "done" | "failed";
@@ -410,6 +423,7 @@ export interface OrchestratorTask {
   retry_count: number;
   created_at: number;
   updated_at: number;
+  routing_info: RoutingInfo | null;
 }
 
 export interface OrchestratorAgent {
@@ -421,6 +435,10 @@ export interface OrchestratorAgent {
   max_concurrent: number;
   circuit_state: "closed" | "open" | "half_open";
   last_health_check: number;
+  tags?: string[];
+  role?: string;
+  domain?: string;
+  skills?: string[];
 }
 
 export interface TaskSubmitRequest {
@@ -432,6 +450,9 @@ export interface TaskSubmitRequest {
   max_retries?: number;
   callback_url?: string;
   metadata?: Record<string, string>;
+  required_tags?: string[];
+  domain?: string;
+  preferred_tags?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +480,28 @@ export interface UserResponse {
   created_at: string | null;
   provisioning_status: string;
   provisioning_error: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Agent Metadata
+// ---------------------------------------------------------------------------
+
+export interface AgentMetadata {
+  agent_number: number;
+  tags: string[];
+  role?: string; // Transitional — will be removed in Phase C
+  domain?: string; // New — preferred over role
+  skills?: string[]; // New — routing tags aggregated from AgentSkill table
+  display_name?: string;
+  description?: string;
+  updated_at?: number;
+}
+
+export interface SkillEntry {
+  name: string;
+  description: string;
+  version?: string;
+  tags?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -838,5 +881,35 @@ export const adminApi = {
 
   orchestratorAgentHealth(agentId: string): Promise<OrchestratorAgent> {
     return adminFetch(`/orchestrator/agents/${agentId}/health`);
+  },
+
+  // -- Agent Metadata --
+  getAgentMetadata(agentNumber: number): Promise<AgentMetadata> {
+    return adminFetch(`/agents/${agentNumber}/metadata`);
+  },
+
+  updateAgentMetadata(
+    agentNumber: number,
+    data: Partial<Pick<AgentMetadata, "tags" | "role" | "domain" | "display_name" | "description">>
+  ): Promise<{ status: string; updated_at: number }> {
+    return adminFetch(`/agents/${agentNumber}/metadata`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  getAllAgentMetadata(): Promise<AgentMetadata[]> {
+    return adminFetch("/agents/metadata");
+  },
+
+  // -- Agent Skills --
+  getAgentSkills(agentId: number): Promise<SkillEntry[]> {
+    return adminFetch(`/agents/${agentId}/skills`);
+  },
+
+  // -- Orchestrator Skill Tags --
+  getSkillTags(): Promise<{ tags: string[]; domain_distribution: Record<string, number> }> {
+    return adminFetch("/orchestrator/skill-tags");
   },
 };
