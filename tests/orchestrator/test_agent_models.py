@@ -28,3 +28,57 @@ def test_agent_capability():
     )
     assert c.capabilities == {}
     assert c.tool_ids == []
+
+
+# ===================================================================
+# gateway_headers
+# ===================================================================
+
+
+class TestGatewayHeaders:
+    """Tests for AgentProfile.gateway_headers() method."""
+
+    def test_gateway_headers_with_api_key(self):
+        """When api_key is set, headers include Authorization Bearer."""
+        agent = AgentProfile(
+            agent_id="a1",
+            gateway_url="http://test:8642",
+            registered_at=0,
+            api_key="sk-123",
+        )
+        headers = agent.gateway_headers()
+        assert headers["Authorization"] == "Bearer sk-123"
+        assert headers["Content-Type"] == "application/json"
+
+    def test_gateway_headers_without_api_key(self):
+        """When api_key is empty, headers do NOT include Authorization."""
+        agent = AgentProfile(
+            agent_id="a1",
+            gateway_url="http://test:8642",
+            registered_at=0,
+        )
+        headers = agent.gateway_headers()
+        assert "Authorization" not in headers
+        assert headers["Content-Type"] == "application/json"
+
+    def test_gateway_headers_with_empty_api_key(self):
+        """Empty string api_key should not add Authorization header."""
+        agent = AgentProfile(
+            agent_id="a1",
+            gateway_url="http://test:8642",
+            registered_at=0,
+            api_key="",
+        )
+        headers = agent.gateway_headers()
+        assert "Authorization" not in headers
+
+    def test_gateway_headers_always_has_content_type(self):
+        """Content-Type is always present regardless of api_key."""
+        agent = AgentProfile(
+            agent_id="a1",
+            gateway_url="http://test:8642",
+            registered_at=0,
+        )
+        headers = agent.gateway_headers()
+        assert "Content-Type" in headers
+        assert headers["Content-Type"] == "application/json"

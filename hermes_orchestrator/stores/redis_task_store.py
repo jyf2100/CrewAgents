@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import redis as _redis
 
-from hermes_orchestrator.models.task import Task, TaskResult
+from hermes_orchestrator.models.task import Task, TaskResult, RoutingInfo
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,22 @@ STREAM_KEY = "hermes:orchestrator:tasks:stream"
 TASK_PREFIX = "hermes:orchestrator:tasks:"
 CONSUMER_GROUP = "orchestrator.workers"
 
-_UNSET = object()
+
+class _Sentinel:
+    """Sentinel value to distinguish 'parameter not provided' from None."""
+
+    _instance: _Sentinel | None = None
+
+    def __new__(cls) -> _Sentinel:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+_UNSET = _Sentinel()
 
 
 class RedisTaskStore:
@@ -51,29 +66,32 @@ class RedisTaskStore:
     def update(
         self,
         task_id: str,
-        status: str | None = _UNSET,
-        assigned_agent: str | None = _UNSET,
-        run_id: str | None = _UNSET,
-        result: TaskResult | None = _UNSET,
-        error: str | None = _UNSET,
-        retry_count: int | None = _UNSET,
+        status: str | None | _Sentinel = _UNSET,
+        assigned_agent: str | None | _Sentinel = _UNSET,
+        run_id: str | None | _Sentinel = _UNSET,
+        result: TaskResult | None | _Sentinel = _UNSET,
+        error: str | None | _Sentinel = _UNSET,
+        retry_count: int | None | _Sentinel = _UNSET,
+        routing_info: RoutingInfo | None | _Sentinel = _UNSET,
     ) -> None:
         task = self.get(task_id)
         if not task:
             logger.warning("Attempted to update nonexistent task %s", task_id)
             return
-        if status is not _UNSET:
+        if not isinstance(status, _Sentinel):
             task.status = status
-        if assigned_agent is not _UNSET:
+        if not isinstance(assigned_agent, _Sentinel):
             task.assigned_agent = assigned_agent
-        if run_id is not _UNSET:
+        if not isinstance(run_id, _Sentinel):
             task.run_id = run_id
-        if result is not _UNSET:
+        if not isinstance(result, _Sentinel):
             task.result = result
-        if error is not _UNSET:
+        if not isinstance(error, _Sentinel):
             task.error = error
-        if retry_count is not _UNSET:
+        if not isinstance(retry_count, _Sentinel):
             task.retry_count = retry_count
+        if not isinstance(routing_info, _Sentinel):
+            task.routing_info = routing_info
         task.updated_at = time.time()
         self._redis.hset(
             f"{TASK_PREFIX}{task.task_id}",

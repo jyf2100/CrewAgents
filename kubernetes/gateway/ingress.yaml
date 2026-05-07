@@ -15,7 +15,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: hermes-gateway
+                name: hermes-gateway-1
                 port:
                   number: 8642
           - path: /agent2(/|$)(.*)

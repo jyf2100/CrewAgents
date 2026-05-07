@@ -26,6 +26,10 @@ class AgentProfile:
     max_concurrent: int = 10
     last_health_check: float = 0.0
     circuit_state: str = "closed"  # closed | open | half_open
+    tags: list[str] = field(default_factory=list)
+    role: str = "generalist"  # Transitional: will be removed in Phase C
+    domain: str = "generalist"  # From Admin API domain field (fallback: role mapping)
+    skills: list[str] = field(default_factory=list)  # Routing tags aggregated from AgentSkill
 
     def gateway_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}

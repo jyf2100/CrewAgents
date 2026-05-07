@@ -1,16 +1,28 @@
 import json
+import os
 import time
 
 import pytest
 import redis as _redis
 
-from hermes_orchestrator.models.task import Task
+from hermes_orchestrator.models.task import Task, RoutingInfo, TaskResult
 from hermes_orchestrator.stores.redis_task_store import RedisTaskStore
+
+
+def _build_redis_kwargs():
+    url = os.environ.get("REDIS_URL")
+    if url:
+        return {"url": url, "db": 15, "decode_responses": True}
+    host = os.environ.get("REDIS_HOST", "localhost")
+    port = int(os.environ.get("REDIS_PORT", "6379"))
+    password = os.environ.get("REDIS_PASSWORD")
+    return {"host": host, "port": port, "db": 15, "password": password, "decode_responses": True}
 
 
 @pytest.fixture
 def redis_client():
-    r = _redis.Redis(host="localhost", port=6379, db=15, decode_responses=True)
+    kwargs = _build_redis_kwargs()
+    r = _redis.Redis(**kwargs)
     r.flushdb()
     yield r
     r.flushdb()
@@ -100,3 +112,107 @@ def test_delete(store, redis_client):
     store.create(t)
     store.delete("t_del")
     assert store.get("t_del") is None
+
+
+# ===================================================================
+# routing_info persistence
+# ===================================================================
+
+
+def test_update_with_routing_info(store):
+    """RoutingInfo can be stored and retrieved via update()."""
+    t = Task(task_id="t-routing", prompt="test", created_at=time.time())
+    store.create(t)
+
+    info = RoutingInfo(
+        strategy="tag_match",
+        chosen_agent_id="agent-1",
+        scores={"agent-1": 0.75, "agent-2": 0.5},
+        matched_tags=["python", "code"],
+        fallback=False,
+        reason="Best tag match",
+    )
+    store.update("t-routing", routing_info=info)
+
+    got = store.get("t-routing")
+    assert got.routing_info is not None
+    assert got.routing_info.strategy == "tag_match"
+    assert got.routing_info.chosen_agent_id == "agent-1"
+    assert got.routing_info.matched_tags == ["python", "code"]
+    assert got.routing_info.scores == {"agent-1": 0.75, "agent-2": 0.5}
+    assert got.routing_info.fallback is False
+    assert got.routing_info.reason == "Best tag match"
+
+
+def test_create_task_with_routing_info(store):
+    """Task created with routing_info survives store roundtrip."""
+    info = RoutingInfo(
+        strategy="least_load",
+        chosen_agent_id="a1",
+        scores={"a1": 0.0, "a2": 0.0},
+        matched_tags=[],
+        fallback=True,
+        reason="No tags matched",
+    )
+    t = Task(
+        task_id="t-pre-routing",
+        prompt="test",
+        created_at=time.time(),
+        routing_info=info,
+    )
+    store.create(t)
+    got = store.get("t-pre-routing")
+    assert got.routing_info is not None
+    assert got.routing_info.strategy == "least_load"
+    assert got.routing_info.fallback is True
+
+
+def test_update_routing_info_preserves_other_fields(store):
+    """Updating routing_info does not clobber status or assigned_agent."""
+    t = Task(task_id="t-preserve", prompt="test", created_at=time.time())
+    store.create(t)
+    store.update("t-preserve", status="executing", assigned_agent="gw-1")
+
+    info = RoutingInfo(
+        strategy="tag_match",
+        chosen_agent_id="gw-1",
+        scores={"gw-1": 0.8},
+        matched_tags=["python"],
+        fallback=False,
+        reason="Tag match",
+    )
+    store.update("t-preserve", routing_info=info)
+
+    got = store.get("t-preserve")
+    assert got.status == "executing"
+    assert got.assigned_agent == "gw-1"
+    assert got.routing_info is not None
+    assert got.routing_info.strategy == "tag_match"
+
+
+def test_update_routing_info_with_result_together(store):
+    """Routing info and result can both be updated in one call."""
+    t = Task(task_id="t-both", prompt="test", created_at=time.time())
+    store.create(t)
+
+    info = RoutingInfo(
+        strategy="tag_match",
+        chosen_agent_id="a1",
+        scores={"a1": 0.9},
+        matched_tags=["code"],
+        fallback=False,
+        reason="Matched",
+    )
+    result = TaskResult(
+        content="answer",
+        usage={"total_tokens": 50},
+        duration_seconds=1.0,
+        run_id="run_1",
+    )
+    store.update("t-both", status="done", result=result, routing_info=info)
+
+    got = store.get("t-both")
+    assert got.status == "done"
+    assert got.result.content == "answer"
+    assert got.routing_info.strategy == "tag_match"
+    assert got.routing_info.matched_tags == ["code"]

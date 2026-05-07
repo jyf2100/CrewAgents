@@ -10,6 +10,9 @@ spec:
       app: hermes-gateway-3
   template:
     metadata:
+      annotations:
+        hermes-agent.io/capabilities: "creative,translation,api,system-design,general"
+        hermes-agent.io/role: "generalist"
       labels:
         app: hermes-gateway-3
         app.kubernetes.io/component: gateway

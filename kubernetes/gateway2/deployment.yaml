@@ -10,6 +10,9 @@ spec:
       app: hermes-gateway-2
   template:
     metadata:
+      annotations:
+        hermes-agent.io/capabilities: "analysis,research,documentation,search"
+        hermes-agent.io/role: "analyst"
       labels:
         app: hermes-gateway-2
         app.kubernetes.io/component: gateway

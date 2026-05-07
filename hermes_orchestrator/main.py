@@ -77,6 +77,8 @@ async def lifespan(app: FastAPI):
     yield
 
     health_monitor.stop()
+    if discovery:
+        await discovery.close()
     health_task.cancel()
     worker_task.cancel()
     discovery_task.cancel()
@@ -159,6 +161,9 @@ async def submit_task(req: TaskSubmitRequest, response: Response):
         max_retries=req.max_retries,
         callback_url=req.callback_url,
         metadata=req.metadata,
+        required_tags=req.required_tags,
+        domain=req.domain,
+        preferred_tags=req.preferred_tags,
         created_at=time.time(),
     )
     task_store.create(task)
@@ -178,6 +183,9 @@ async def get_task(task_id: str, response: Response):
     result_dict = None
     if task.result:
         result_dict = task.result.__dict__
+    routing_info_dict = None
+    if task.routing_info:
+        routing_info_dict = task.routing_info.__dict__
     return TaskStatusResponse(
         task_id=task.task_id,
         status=task.status,
@@ -188,6 +196,7 @@ async def get_task(task_id: str, response: Response):
         retry_count=task.retry_count,
         created_at=task.created_at,
         updated_at=task.updated_at,
+        routing_info=routing_info_dict,
     )
 
 
@@ -325,8 +334,38 @@ async def _process_task(task_id: str):
     if not task:
         return
     agents = await loop.run_in_executor(None, agent_registry.list_agents)
-    chosen = selector.select(agents, task)
+    chosen, routing_info = selector.select(agents, task)
+    if routing_info:
+        await loop.run_in_executor(
+            None,
+            partial(task_store.update, task_id, routing_info=routing_info),
+        )
     if not chosen:
+        # Check if the routing info indicates we should requeue instead of failing
+        should_requeue = routing_info and routing_info.requeue
+        if should_requeue:
+            current = await loop.run_in_executor(None, task_store.get, task_id)
+            if current and current.retry_count < current.max_retries:
+                new_count = current.retry_count + 1
+                await loop.run_in_executor(
+                    None,
+                    partial(
+                        task_store.update,
+                        task_id,
+                        status="queued",
+                        assigned_agent=None,
+                        retry_count=new_count,
+                        error=None,
+                    ),
+                )
+                requeued_task = await loop.run_in_executor(None, task_store.get, task_id)
+                if requeued_task:
+                    await loop.run_in_executor(None, task_store.enqueue, requeued_task)
+                logger.info(
+                    "Task %s re-queued (attempt %d/%d, required_tags unsatisfied)",
+                    task_id, new_count, current.max_retries,
+                )
+                return
         await loop.run_in_executor(
             None,
             partial(
@@ -338,9 +377,23 @@ async def _process_task(task_id: str):
         None,
         partial(task_store.update, task_id, status="assigned", assigned_agent=chosen.agent_id),
     )
-    await loop.run_in_executor(
-        None, agent_registry.update_load, chosen.agent_id, chosen.current_load + 1
+    # Use atomic increment to prevent race condition on load counter
+    load_increased = await loop.run_in_executor(
+        None, agent_registry.atomic_increment_load, chosen.agent_id, chosen.max_concurrent
     )
+    if not load_increased:
+        logger.warning(
+            "Task %s: agent %s was at capacity after atomic check, re-queuing",
+            task_id, chosen.agent_id,
+        )
+        await loop.run_in_executor(
+            None,
+            partial(task_store.update, task_id, status="queued", assigned_agent=None),
+        )
+        requeued_task = await loop.run_in_executor(None, task_store.get, task_id)
+        if requeued_task:
+            await loop.run_in_executor(None, task_store.enqueue, requeued_task)
+        return
     try:
         run_id = await executor.submit_run(
             chosen.gateway_url, task.prompt, task.instructions,
@@ -485,8 +538,9 @@ async def _run_discovery_loop():
             existing = {a.agent_id for a in existing_agents}
             discovered = {p.agent_id for p in profiles}
             for p in profiles:
-                if p.agent_id not in existing:
-                    await loop.run_in_executor(None, agent_registry.register, p)
+                is_new = p.agent_id not in existing
+                await loop.run_in_executor(None, agent_registry.register, p)
+                if is_new:
                     circuits[p.agent_id] = CircuitBreaker(
                         failure_threshold=config.circuit_failure_threshold,
                         success_threshold=config.circuit_success_threshold,

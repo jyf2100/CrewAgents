@@ -1,3 +1,4 @@
+import os
 import time
 import pytest
 import redis as _redis
@@ -5,9 +6,20 @@ from hermes_orchestrator.models.agent import AgentProfile
 from hermes_orchestrator.stores.redis_agent_registry import RedisAgentRegistry
 
 
+def _build_redis_kwargs():
+    url = os.environ.get("REDIS_URL")
+    if url:
+        return {"url": url, "db": 15, "decode_responses": True}
+    host = os.environ.get("REDIS_HOST", "localhost")
+    port = int(os.environ.get("REDIS_PORT", "6379"))
+    password = os.environ.get("REDIS_PASSWORD")
+    return {"host": host, "port": port, "db": 15, "password": password, "decode_responses": True}
+
+
 @pytest.fixture
 def redis_client():
-    r = _redis.Redis(host="localhost", port=6379, db=15, decode_responses=True)
+    kwargs = _build_redis_kwargs()
+    r = _redis.Redis(**kwargs)
     r.flushdb()
     yield r
     r.flushdb()

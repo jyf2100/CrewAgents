@@ -1,18 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: hermes-gateway
+  name: hermes-gateway-1
   namespace: hermes-agent
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: hermes-gateway
+      app: hermes-gateway-1
       app.kubernetes.io/component: gateway
   template:
     metadata:
+      annotations:
+        hermes-agent.io/capabilities: "code,python,debugging,testing,code-review"
+        hermes-agent.io/role: "coder"
       labels:
-        app: hermes-gateway
+        app: hermes-gateway-1
         app.kubernetes.io/component: gateway
     spec:
       serviceAccountName: hermes-gateway
@@ -46,7 +49,7 @@ spec:
             - name: SWARM_REDIS_URL
               value: "redis://hermes-redis:6379/0"
             - name: K8S_DEPLOYMENT
-              value: "hermes-gateway"
+              value: "hermes-gateway-1"
           resources:
             requests:
               cpu: 250m
@@ -82,7 +85,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: hermes-gateway
+  name: hermes-gateway-1
   namespace: hermes-agent
 spec:
   type: ClusterIP
@@ -91,4 +94,4 @@ spec:
       port: 8642
       targetPort: 8642
   selector:
-    app: hermes-gateway
+    app: hermes-gateway-1

@@ -1747,6 +1747,14 @@ class GatewayRunner:
         except Exception as e:
             logger.error("Recovered watcher setup error: %s", e)
 
+        # Start background skill refresh thread (periodic re-report to Admin)
+        _skill_refresh_t = threading.Thread(
+            target=self._skill_refresh_loop,
+            daemon=True,
+            name="skill-refresh",
+        )
+        _skill_refresh_t.start()
+
         # Start background session expiry watcher for proactive memory flushing
         asyncio.create_task(self._session_expiry_watcher())
 
@@ -1762,7 +1770,24 @@ class GatewayRunner:
         logger.info("Press Ctrl+C to stop")
         
         return True
-    
+
+    def _skill_refresh_loop(self) -> None:
+        """Background thread that periodically re-reports skills to Admin.
+
+        Runs on a daemon thread so it never prevents process exit.  Failures
+        are logged at DEBUG level since skills reporting is non-critical.
+        """
+        interval = max(60, int(os.getenv("SKILL_REPORT_INTERVAL", "21600")))
+        while self._running:
+            time.sleep(interval)
+            if not self._running:
+                break
+            try:
+                from gateway.skills_reporter import report_skills_sync
+                report_skills_sync()
+            except Exception:
+                logger.debug("Skills refresh failed (non-critical)", exc_info=True)
+
     async def _session_expiry_watcher(self, interval: int = 300):
         """Background task that proactively flushes memories for expired sessions.
         
@@ -8902,6 +8927,13 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
         sync_skills(quiet=True)
     except Exception:
         pass
+
+    # Report installed skills to Admin backend (fire-and-forget, non-critical)
+    try:
+        from gateway.skills_reporter import report_skills_sync
+        report_skills_sync()
+    except Exception:
+        logger.debug("Skills report skipped (non-critical)", exc_info=True)
 
     # Centralized logging — agent.log (INFO+), errors.log (WARNING+),
     # and gateway.log (INFO+, gateway-component records only).
