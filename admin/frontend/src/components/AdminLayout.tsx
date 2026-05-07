@@ -228,7 +228,7 @@ export function AdminLayout() {
             </Link>
           ) : (
             <a
-              href={`http://${window.location.hostname}:48080`}
+              href={window.location.origin}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-text-secondary hover:text-text-primary hover:bg-surface/50 transition-colors duration-150"

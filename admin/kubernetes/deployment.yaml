@@ -46,9 +46,17 @@ spec:
                   name: postgres-secret
                   key: database-url
             - name: WEBUI_INTERNAL_URL
-              value: "http://172.32.153.184:48080"
+              value: "http://hermes-webui:8080"
             - name: EXTERNAL_WEBUI_URL
-              value: "http://roc-epyc:48080"
+              value: "http://172.32.153.184:40080"
+            - name: EXTERNAL_API_BASE
+              value: "http://172.32.153.184:40080"
+            - name: EXTERNAL_URL_PREFIX
+              value: "http://172.32.153.184:40080"
+            - name: ADMIN_CORS_ORIGINS
+              value: "http://172.32.153.184:40080"
+            - name: ORCHESTRATOR_INTERNAL_URL
+              value: "http://hermes-orchestrator:8080"
             - name: WEBUI_ADMIN_EMAIL
               value: "rocju315@gmail.com"
             - name: WEBUI_ADMIN_PASSWORD

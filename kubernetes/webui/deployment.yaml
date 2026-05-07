@@ -26,7 +26,9 @@ spec:
         - name: ENABLE_DIRECT_CONNECTIONS
           value: 'true'
         - name: ENABLE_SIGNUP
-          value: 'false'
+          value: 'true'
+        - name: DEFAULT_USER_ROLE
+          value: 'user'
         - name: WEBUI_AUTH
           value: 'true'
         - name: PORT

@@ -5,6 +5,7 @@ import { useI18n } from "../hooks/useI18n";
 export function ChatPage() {
   const { t } = useI18n();
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -13,6 +14,12 @@ export function ChatPage() {
       try {
         const res = await adminApi.getWebUILoginUrl();
         if (cancelled) return;
+
+        if (res.provisioning_status === "skipped" || !res.email) {
+          setRedirectUrl(res.url);
+          return;
+        }
+
         const baseUrl = res.url.replace("/api/v1/auths/signin", "");
         const hash = `#email=${encodeURIComponent(res.email)}&password=${encodeURIComponent(res.password)}`;
         setIframeSrc(`${baseUrl}/token-login.html${hash}`);
@@ -37,6 +44,15 @@ export function ChatPage() {
           </svg>
           <p className="text-text-secondary text-sm">{error}</p>
         </div>
+      </div>
+    );
+  }
+
+  if (redirectUrl) {
+    window.location.href = redirectUrl;
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-text-secondary text-sm animate-pulse">{t.loading}</p>
       </div>
     );
   }

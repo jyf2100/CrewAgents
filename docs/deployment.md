@@ -1,357 +1,517 @@
-# Hermes Agent 部署指南
+# Hermes Agent 部署规范
 
 ## 架构概览
 
 ```
-用户 (Telegram/Discord/Slack/WhatsApp/CLI/...)
-  → Gateway (gateway/run.py) — 异步平台适配器，监听 8642
-    → AIAgent (run_agent.py) — 同步 Agent 循环，LLM API 调用
-      → Tool Registry (tools/registry.py) — 自注册工具系统
+用户 (Telegram/Discord/Slack/WhatsApp/CLI/WebUI/...)
+  → Ingress (Nginx, hostNetwork :40080)
+    → Gateway (gateway/run.py) — 异步平台适配器，监听 8642
+      → AIAgent (run_agent.py) — 同步 Agent 循环，LLM API 调用
+        → Tool Registry (tools/registry.py) — 自注册工具系统
 
 Admin Panel (admin/) — FastAPI + React，管理 K8s Agent 实例
   → 监听 48082，通过 K8s API 管理 Deployment
+  → 用户注册/登录/激活，WebUI 自动 Provisioning
 
-Open WebUI — 可选的 Web 聊天界面，监听 48080
-  → 通过 OpenAI 兼容 API 连接 Gateway
-```
+Orchestrator — 任务调度 + Agent 路由
+  → 监听 8080，Redis 队列
 
-## 前置条件
+Open WebUI — Web 聊天界面，监听 48080
+  → per-user Direct Connection 注入 agent base_url + api_key
+  → 通过 Admin iframe 免密跳转
 
-| 组件 | 版本要求 | 用途 |
-|------|---------|------|
-| Docker | 20.10+ | 构建和运行容器镜像 |
-| Python | 3.11+ | 本地开发 |
-| kubectl | 1.28+ | K8s 部署（生产环境） |
-| K8s 集群 | 1.28+ | 生产环境 |
-| uv | latest | Python 包管理（本地开发） |
-
----
-
-## 方式一：Docker Compose（开发/单机）
-
-### 1. 配置环境变量
-
-```bash
-cp .env.example .env
-```
-
-编辑 `.env`，填入：
-
-```env
-# 必填：LLM 提供商配置
-OPENAI_API_KEY=sk-xxx
-# 或其他提供商：
-# ANTHROPIC_API_KEY=sk-ant-xxx
-# OPENROUTER_API_KEY=sk-or-xxx
-
-# 可选：代理
-# HTTP_PROXY=http://proxy:port
-# HTTPS_PROXY=http://proxy:port
-```
-
-### 2. 启动服务
-
-```bash
-docker-compose up -d
-```
-
-这会启动三个服务：
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| `hermes` | 8642 | Agent Gateway（API + 消息适配） |
-| `webui` | 3001 | Open WebUI 聊天界面 |
-| `setup` | 3080/8643 | 初始配置向导（可移除） |
-
-### 3. 验证
-
-```bash
-# 检查 Gateway
-curl http://localhost:8642/health
-
-# 检查 WebUI
-curl http://localhost:3001
+PostgreSQL — Admin 用户数据 + Agent 元数据
+Redis — Orchestrator 任务队列 + Swarm 协作
 ```
 
 ---
 
-## 方式二：Kubernetes（生产/多实例）
+## 集群拓扑
 
-### 1. 构建镜像
+### 开发集群 (184)
 
-#### Gateway 镜像
+| 角色 | IP | 说明 |
+|------|-----|------|
+| K8s Master/Worker | 172.32.153.184 | kubectl 本地访问 |
+| Ingress LB | 172.32.153.184 | Nginx Ingress hostNetwork |
 
-```bash
-# 从仓库根目录构建
-docker build -t nousresearch/hermes-agent:latest .
+### 测试集群 (183)
 
-# 如果需要推送到私有仓库
-docker tag nousresearch/hermes-agent:latest registry.cn-hangzhou.aliyuncs.com/hermes-ops/hermes-agent:latest
-docker push registry.cn-hangzhou.aliyuncs.com/hermes-ops/hermes-agent:latest
-```
-
-**镜像包含：**
-- Python 3.11 venv + 全部依赖（`.[all]`）
-- Node.js + npm（whatsapp-bridge）
-- Playwright Chromium（浏览器工具）
-- ASCII 艺术工具：cowsay, boxes, toilet, jp2a, pyfiglet
-- 图像处理：Pillow, scipy
-- 运行用户：`hermes`（UID 10000），通过 gosu 降权
-
-#### Admin 面板镜像
-
-```bash
-cd admin
-docker build -f backend/Dockerfile -t hermes-admin:latest .
-
-# 推送到私有仓库
-docker tag hermes-admin:latest registry.cn-hangzhou.aliyuncs.com/hermes-ops/hermes-admin:latest
-docker push registry.cn-hangzhou.aliyuncs.com/hermes-ops/hermes-admin:latest
-```
-
-### 2. 导入镜像到 containerd（如果使用 imagePullPolicy: Never）
-
-```bash
-docker save nousresearch/hermes-agent:latest | sudo ctr -n k8s.io images import -
-docker save hermes-admin:latest | sudo ctr -n k8s.io images import -
-```
-
-### 3. 创建命名空间和 Secret
-
-```bash
-# 创建命名空间
-kubectl apply -f kubernetes/namespace.yaml
-
-# 配置数据库密钥（修改密码！）
-kubectl apply -f kubernetes/postgres/secret.yaml
-# 编辑 secret 中的 password 字段：
-kubectl edit secret hermes-db-secret -n hermes-agent
-
-# 配置 Gateway API Key
-kubectl create secret generic hermes-db-secret \
-  --from-literal=api_key=$(openssl rand -hex 32) \
-  --from-literal=api_key_2=$(openssl rand -hex 32) \
-  --from-literal=api_key_3=$(openssl rand -hex 32) \
-  -n hermes-agent --dry-run=client -o yaml | kubectl apply -f -
-```
-
-### 4. 部署基础设施
-
-```bash
-# 本地存储（需要节点路径 /data/hermes 存在）
-kubectl apply -f kubernetes/storage/
-
-# PostgreSQL
-kubectl apply -f kubernetes/postgres/
-
-# Ingress Controller（如果集群没有）
-kubectl apply -f kubernetes/ingress-nginx/
-```
-
-### 5. 部署 Gateway
-
-```bash
-# 确保节点上有数据目录
-sudo mkdir -p /data/hermes/agent1 /data/hermes/agent2 /data/hermes/agent3
-sudo chown -R 10000:10000 /data/hermes
-
-# 部署 3 个 Gateway 实例
-kubectl apply -f kubernetes/gateway/deployment.yaml
-kubectl apply -f kubernetes/gateway/service.yaml
-kubectl apply -f kubernetes/gateway/rbac.yaml
-kubectl apply -f kubernetes/gateway/pdb.yaml
-kubectl apply -f kubernetes/gateway/ingress.yaml
-
-kubectl apply -f kubernetes/gateway2/deployment.yaml
-kubectl apply -f kubernetes/gateway3/deployment.yaml
-```
-
-### 6. 部署 Sandbox Pool（可选）
-
-```bash
-# 需要 OpenSandbox CRD 已安装
-kubectl apply -f kubernetes/sandbox/
-```
-
-### 7. 部署 WebUI（可选）
-
-```bash
-kubectl apply -f kubernetes/webui/
-```
-
-### 8. 部署 Admin 面板
-
-```bash
-cd admin/kubernetes
-./deploy.sh
-```
-
-`deploy.sh` 会自动：
-1. 生成 32 字节 hex admin key
-2. 创建 Secret
-3. 应用 RBAC
-4. 应用 Deployment 和 Service
-5. Patch Ingress 添加 `/admin` 路径
-6. 等待 rollout 完成
-
-**重要：保存输出的 Admin Key！**
-
-### 9. 验证部署
-
-```bash
-# 检查所有 Pod 状态
-kubectl get pods -n hermes-agent
-
-# 检查 Gateway
-kubectl logs -f deployment/hermes-gateway -n hermes-agent
-
-# 检查 Admin
-kubectl logs -f deployment/hermes-admin -n hermes-agent
-
-# 测试 Gateway API
-curl http://<节点IP>:40080/agent1/health
-
-# 测试 Admin API
-curl -H "X-Admin-Key: <your-admin-key>" http://<节点IP>:40080/admin/api/agents
-```
+| 角色 | IP | 说明 |
+|------|-----|------|
+| K8s Master/Worker | 172.32.153.183 | SSH root@172.32.153.183 |
+| ctr 路径 | /opt/containerd/bin/ctr | 镜像导入 |
+| Ingress LB | 172.32.153.183 | Nginx Ingress hostNetwork |
 
 ---
 
 ## 端口映射
 
-| 端口 | 服务 | 访问方式 |
-|------|------|---------|
-| 8642 | Gateway API | ClusterIP / Ingress |
-| 48082 | Admin Panel | ClusterIP / Ingress `/admin` |
-| 48080 | Open WebUI | hostNetwork |
-| 40080 | Ingress HTTP | hostNetwork |
-| 40443 | Ingress HTTPS | hostNetwork |
-| 5432 | PostgreSQL | ClusterIP only |
+### 集群内部端口
 
-### Ingress 路径映射
+| 端口 | 服务 | 协议 |
+|------|------|------|
+| 8642 | Gateway API | HTTP |
+| 48082 | Admin Panel | HTTP |
+| 48080 | Open WebUI | HTTP |
+| 8080 | Orchestrator API | HTTP |
+| 6379 | Redis | TCP |
+| 9121 | Redis Exporter (metrics) | HTTP |
+| 5432 | PostgreSQL | TCP |
 
-| 路径 | 后端服务 |
-|------|---------|
-| `/agent1(/|$)(.*)` | hermes-gateway:8642 |
-| `/agent2(/|$)(.*)` | hermes-gateway-2:8642 |
-| `/agent3(/|$)(.*)` | hermes-gateway-3:8642 |
-| `/admin(/|$)(.*)` | hermes-admin:48082 |
+### 外部端口映射
 
----
+| 外部端口 | 集群端口 | 服务 | 路径 |
+|----------|----------|------|------|
+| 40080 | 80 (Ingress) | Admin/Gateway/WebUI | 见 Ingress 规则 |
+| 48080 | 8080 (NodePort) | Open WebUI 直接访问 | `/` |
 
-## 配置说明
+### Ingress 路由规则
 
-### LLM Provider 映射
+| 路径 (regex) | 后端 Service:Port | rewrite-target |
+|-------------|-------------------|----------------|
+| `/admin/api(/\|$)(.*)` | hermes-admin:48082 | `/$2` |
+| `/admin/assets/` | hermes-admin:48082 | (none) |
+| `/admin(/\|$)(.*)` | hermes-admin:48082 | `/$2` |
+| `/agentN(/\|$)(.*)` | hermes-gateway-N:8642 | `/$2` |
+| `/` | hermes-webui:8080 | (none, Prefix) |
 
-创建 Agent 时选择 Provider，系统自动映射 API 模式和环境变量：
-
-| Provider | API 模式 | 环境变量 | 默认 URL |
-|----------|---------|---------|---------|
-| `openrouter` | chat_completions | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
-| `openai` | chat_completions | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
-| `anthropic` | anthropic_messages | `ANTHROPIC_API_KEY` | `https://api.anthropic.com/v1` |
-| `gemini` | chat_completions | `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta` |
-| `zhipuai` | chat_completions | `GLM_API_KEY` | `https://open.bigmodel.cn/api/paas/v4` |
-| `minimax` | anthropic_messages | `OPENAI_API_KEY` | `https://api.minimaxi.com/anthropic/v1` |
-| `kimi` | chat_completions | `MOONSHOT_API_KEY` | `https://api.moonshot.cn/v1` |
-| `anthropic-compat` | anthropic_messages | `OPENAI_API_KEY` | 需手动填写 |
-| `custom` | chat_completions | `OPENAI_API_KEY` | 需手动填写 |
-
-**注意：** `minimax` 和 `anthropic-compat` 使用 Anthropic Messages 协议，但通过 `OPENAI_API_KEY` 环境变量传递密钥。Agent 内部 provider 会被解析为 `custom`。
-
-### Gateway 环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|-------|
-| `API_SERVER_ENABLED` | 启用 HTTP API | `false` |
-| `API_SERVER_HOST` | 监听地址 | `127.0.0.1` |
-| `API_SERVER_PORT` | 监听端口 | `8642` |
-| `API_SERVER_KEY` | API 认证密钥 | 空（无认证） |
-| `GATEWAY_ALLOW_ALL_USERS` | 允许所有用户 | `false` |
-| `K8S_NAMESPACE` | K8s 命名空间 | `hermes-agent` |
-| `HERMES_HOME` | 数据目录 | `/opt/data` |
-
-### Admin 环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|-------|
-| `ADMIN_KEY` | 认证密钥（空=无认证） | 空 |
-| `K8S_NAMESPACE` | K8s 命名空间 | `hermes-agent` |
-| `HERMES_DATA_ROOT` | Agent 数据根目录 | `/data/hermes` |
+**注：** Ingress `rewrite-target: /$2` 会剥离路径前缀。例如 `/admin/api/agents` → 后端收到 `/agents`。因此后端路由不要加 `/admin/api` 前缀。
 
 ---
 
-## 升级
+## 镜像清单
 
-### Gateway 升级
+| 镜像名 | 构建目录 | Dockerfile | 说明 |
+|--------|---------|------------|------|
+| `nousresearch/hermes-agent:latest` | 仓库根目录 | `Dockerfile` | Gateway |
+| `hermes-admin:latest` | `admin/` | `backend/Dockerfile` | Admin Panel |
+| `hermes-orchestrator:latest` | `hermes_orchestrator/` | `Dockerfile` | Orchestrator |
+| `redis:7-alpine` | (公共镜像) | - | Redis |
+| `oliver006/redis_exporter:latest` | (公共镜像) | - | Redis 监控 |
+| `open-webui:nl-v0.9.2-nh` | (预构建镜像) | - | Open WebUI |
+
+### 构建命令
 
 ```bash
-# 构建新镜像
+# Gateway
 docker build -t nousresearch/hermes-agent:latest .
-docker save nousresearch/hermes-agent:latest | sudo ctr -n k8s.io images import -
 
-# 滚动更新
-kubectl rollout restart deployment/hermes-gateway -n hermes-agent
-kubectl rollout restart deployment/hermes-gateway-2 -n hermes-agent
-kubectl rollout restart deployment/hermes-gateway-3 -n hermes-agent
+# Admin (从 admin/ 目录)
+cd admin && docker build -f backend/Dockerfile -t hermes-admin:latest .
+
+# Orchestrator (从仓库根目录)
+docker build -f hermes_orchestrator/Dockerfile -t hermes-orchestrator:latest .
 ```
 
-### Admin 升级
+### 导入镜像到 containerd
 
 ```bash
-cd admin
+# 184 (开发集群，本地 kubectl)
+docker save <image>:latest | sudo ctr -n k8s.io images import -
 
-# 方式一：本地构建
-docker build -f backend/Dockerfile -t hermes-admin:latest .
-docker save hermes-admin:latest | sudo ctr -n k8s.io images import -
-kubectl rollout restart deployment/hermes-admin -n hermes-agent
-
-# 方式二：推送到仓库（推荐）
-TAG=v1.2.3 ./kubernetes/upgrade.sh
+# 183 (测试集群，SSH 远程)
+docker save <image>:latest | ssh root@172.32.153.183 '/opt/containerd/bin/ctr -n k8s.io images import -'
 ```
+
+**注：** 所有 Deployment 使用 `imagePullPolicy: Never`，必须先导入镜像再 rollout。
+
+---
+
+## Secret 管理
+
+### 必需 Secrets
+
+| Secret 名 | Key(s) | 用途 |
+|-----------|--------|------|
+| `hermes-admin-secret` | `admin_key` | Admin 面板认证密钥 (32字节 hex) |
+| `hermes-admin-internal-secret` | `admin_internal_token` | Admin 内部 API token (Orchestrator/Agent 回调用) |
+| `hermes-orchestrator-secret` | `ORCHESTRATOR_API_KEY` | Orchestrator API 认证 |
+| `hermes-redis-secret` | `redis-password`, `redis-url` | Redis 密码和连接 URL |
+| `hermes-database-secret` | `database-url` | PostgreSQL 连接字符串 (Admin 用) |
+| `hermes-db-secret` | `api_key`, `api_key_2`, `api_key_3`, `password`, `username` | PostgreSQL 凭据 + Gateway 默认 API Key |
+| `hermes-gateway-N-secret` | `api_key` | 每个 Gateway 的 API Key (创建 Agent 时自动生成) |
+| `postgres-secret` | `database-url`, `password` | PostgreSQL StatefulSet 密码 |
+
+### 创建 Secrets
+
+```bash
+NS=hermes-agent
+
+# Admin Key
+kubectl create secret generic hermes-admin-secret \
+  --from-literal=admin_key=$(openssl rand -hex 16) -n $NS
+
+# Admin Internal Token
+kubectl create secret generic hermes-admin-internal-secret \
+  --from-literal=admin_internal_token=$(openssl rand -hex 32) -n $NS
+
+# Orchestrator API Key
+kubectl create secret generic hermes-orchestrator-secret \
+  --from-literal=ORCHESTRATOR_API_KEY=$(openssl rand -hex 32) -n $NS
+
+# Redis
+REDIS_PASS=$(openssl rand -hex 16)
+kubectl create secret generic hermes-redis-secret \
+  --from-literal=redis-password=$REDIS_PASS \
+  --from-literal=redis-url="redis://:${REDIS_PASS}@hermes-redis:6379/0" -n $NS
+
+# PostgreSQL
+PG_PASS=$(openssl rand -hex 16)
+kubectl create secret generic postgres-secret \
+  --from-literal=password=$PG_PASS \
+  --from-literal=database-url="postgresql+asyncpg://postgres:${PG_PASS}@postgres:5432/hermes_admin" -n $NS
+
+kubectl create secret generic hermes-database-secret \
+  --from-literal=password=$PG_PASS \
+  --from-literal=username=postgres \
+  --from-literal=database-url="postgresql+asyncpg://postgres:${PG_PASS}@postgres:5432/hermes_admin" \
+  --from-literal=api_key=$(openssl rand -hex 16) \
+  --from-literal=api_key_2=$(openssl rand -hex 16) \
+  --from-literal=api_key_3=$(openssl rand -hex 16) -n $NS
+```
+
+---
+
+## ConfigMaps
+
+| ConfigMap 名 | Key | 用途 | 挂载到 |
+|-------------|-----|------|--------|
+| `hermes-redis-config` | `redis.conf` | Redis 持久化 + RDB/AOF 配置 | hermes-redis |
+| `webui-bridge-page` | `token-login.html` | WebUI 免密跳转桥接页 | hermes-webui: `/app/build/token-login.html` |
+| `hermes-swarm-module` | 多个 `.py` | Swarm Python 模块注入 | hermes-gateway-N |
+| `postgres-init-script` | `init.sql` | PostgreSQL 初始化 SQL | postgres |
+| `admin-startup` | `startup.sh` | Admin 启动脚本 (DB migration 等) | hermes-admin |
+
+**重要：** `webui-bridge-page` ConfigMap 必须挂载到 WebUI Deployment，否则用户无法通过 iframe 免密跳转到 WebUI。挂载路径为 `/app/build/token-login.html`（subPath 方式）。
+
+---
+
+## 环境变量规范
+
+### hermes-admin
+
+| 变量 | 来源 | 说明 | 示例 |
+|------|------|------|------|
+| `ADMIN_KEY` | secret `hermes-admin-secret/admin_key` | 认证密钥 | |
+| `ADMIN_INTERNAL_TOKEN` | secret `hermes-admin-internal-secret/admin_internal_token` | 内部 API token | |
+| `K8S_NAMESPACE` | value | K8s 命名空间 | `hermes-agent` |
+| `HERMES_DATA_ROOT` | value | Agent 数据根目录 | `/data/hermes` |
+| `PYTHONUNBUFFERED` | value | Python 日志不缓冲 | `1` |
+| `EXTERNAL_URL_PREFIX` | value | Admin 外部 URL | `http://172.32.153.184:40080` |
+| `EXTERNAL_WEBUI_URL` | value | WebUI 外部 URL | `http://172.32.153.184:48080` |
+| `EXTERNAL_API_BASE` | value | Gateway 外部 API 基地址 (用于 Direct Connection) | `http://172.32.153.184:40080` |
+| `WEBUI_INTERNAL_URL` | value | WebUI 集群内部 URL | `http://hermes-webui:8080` |
+| `ORCHESTRATOR_INTERNAL_URL` | value | Orchestrator 内部 URL | `http://hermes-orchestrator:8080` |
+| `ORCHESTRATOR_API_KEY` | secret (推荐) | Orchestrator 调用密钥 | |
+| `DATABASE_URL` | secret `postgres-secret/database-url` | PostgreSQL 连接串 | |
+| `REDIS_PASSWORD` | secret `hermes-redis-secret/redis-password` | Redis 密码 (供 SWARM_REDIS_URL 引用) | |
+| `SWARM_REDIS_URL` | value (含 `$(REDIS_PASSWORD)` 引用) | Redis 连接串 | `redis://:$(REDIS_PASSWORD)@hermes-redis:6379/0` |
+| `ADMIN_CORS_ORIGINS` | value | CORS 允许来源 | `http://172.32.153.184:40080` |
+
+**外部 URL 按集群不同（必须配置，不可省略）：**
+- 184: `EXTERNAL_URL_PREFIX`=`http://172.32.153.184:40080` / `EXTERNAL_WEBUI_URL`=`http://172.32.153.184:48080` / `EXTERNAL_API_BASE`=`http://172.32.153.184:40080`
+- 183: `EXTERNAL_URL_PREFIX`=`http://172.32.153.183:32570` / `EXTERNAL_WEBUI_URL`=`http://172.32.153.183:48080` / `EXTERNAL_API_BASE`=`http://172.32.153.183:32570`
+
+**警告：** `EXTERNAL_API_BASE` 无默认值。如果未设置，WebUI Direct Connection 配置会失败。部署新集群时必须显式设置此变量。
+
+### hermes-gateway-N
+
+| 变量 | 来源 | 说明 |
+|------|------|------|
+| `API_SERVER_ENABLED` | value: `true` | 启用 HTTP API |
+| `API_SERVER_HOST` | value: `0.0.0.0` | 监听地址 |
+| `API_SERVER_PORT` | value: `8642` | 监听端口 |
+| `API_SERVER_KEY` | secret `hermes-gateway-N-secret/api_key` | API 认证密钥 |
+| `API_SERVER_CORS_ORIGINS` | value: `*` | CORS |
+| `GATEWAY_ALLOW_ALL_USERS` | value: `true` | 允许所有用户 |
+| `K8S_NAMESPACE` | value: `hermes-agent` | 命名空间 |
+| `K8S_DEPLOYMENT` | value: `hermes-gateway-N` | 自身 Deployment 名 |
+| `SWARM_REDIS_URL` | value (含 `$(REDIS_PASSWORD)` 引用) | Redis 连接串 | `redis://:$(REDIS_PASSWORD)@hermes-redis:6379/0` |
+| `REDIS_PASSWORD` | secret `hermes-redis-secret/redis-password` | Redis 密码 (供 SWARM_REDIS_URL 引用) | |
+| `SANDBOX_POOL_NAME` | value: `hermes-sandbox-pool` | Sandbox 资源池 |
+| `SANDBOX_TTL_MINUTES` | value: `30` | Sandbox TTL |
+| `SKILL_REPORT_INTERVAL` | value: `300` | 技能上报间隔(秒) |
+| `SKILL_REPORT_ADMIN_URL` | value: `http://hermes-admin:48082` | Admin 内部 URL |
+
+### hermes-orchestrator
+
+| 变量 | 来源 | 说明 |
+|------|------|------|
+| `ORCHESTRATOR_API_KEY` | secret | API 认证密钥 |
+| `REDIS_URL` | secret `hermes-redis-secret/redis-url` | Redis 连接 |
+| `GATEWAY_API_KEY` | secret `hermes-db-secret/api_key` | 默认 Gateway API Key |
+| `K8S_NAMESPACE` | value: `hermes-agent` | 命名空间 |
+| `LOG_LEVEL` | value: `INFO` | 日志级别 |
+| `ADMIN_INTERNAL_URL` | value: `http://hermes-admin:48082` | Admin 内部 URL |
+| `ADMIN_INTERNAL_TOKEN` | secret `hermes-admin-internal-secret/admin_internal_token` | Admin 内部 token |
+
+### hermes-webui
+
+| 变量 | 值 | 说明 |
+|------|-----|------|
+| `WEBUI_AUTH` | `true` | 启用认证 |
+| `PORT` | `48080` | 监听端口 |
+| `ENABLE_DIRECT_CONNECTIONS` | `true` | 启用 per-user LLM 配置 |
+| `ENABLE_ONBOARDING` | `false` | 禁用新手引导 |
+| `WEBUI_SECRET_KEY` | (随机 hex) | JWT 签名密钥 |
+| `RAG_EMBEDDING_MODEL` | (空) | 嵌入模型名称 |
+| `RAG_RERANKING_MODEL` | (空) | 重排序模型名称 |
+
+**警告：** 不要设置全局 `OPENAI_API_BASE_URL` 或 `OPENAI_API_KEY`。WebUI 使用 per-user Direct Connection，全局配置会导致所有用户共用同一个 agent。
+
+---
+
+## 资源配额
+
+| 组件 | CPU request | CPU limit | Memory request | Memory limit |
+|------|-------------|-----------|----------------|--------------|
+| hermes-admin | 100m | 500m | 128Mi | 512Mi |
+| hermes-gateway-N | 1000m | 1000m (Guaranteed) | 1Gi | 1Gi |
+| hermes-orchestrator | 100m | 500m | 128Mi | 256Mi |
+| hermes-redis | 100m | 500m | 128Mi | 512Mi |
+| redis-exporter | 50m | 100m | 50Mi | 100Mi |
+| hermes-webui | 100m | 1000m | 512Mi | 2Gi |
+| postgres | - | - | - | 1Gi PVC |
+
+---
+
+## 存储需求
+
+| PVC | 容量 | StorageClass | 挂载点 | 用途 |
+|-----|------|-------------|--------|------|
+| `hermes-data-pvc` | 50Gi | local-storage | `/data/hermes` | Agent 数据 |
+| `hermes-redis-pvc` | 5Gi | local-storage | `/data` | Redis AOF/RDB |
+| `pgdata-postgres-0` | 1Gi | local-storage | `/var/lib/postgresql/data` | PostgreSQL 数据 |
+
+**节点目录要求：**
+```bash
+sudo mkdir -p /data/hermes
+sudo chown -R 10000:10000 /data/hermes
+```
+
+---
+
+## NetworkPolicies
+
+| Policy | Pod Selector | Ingress 规则 | Egress 规则 |
+|--------|-------------|-------------|------------|
+| `gateway-isolation` | `app=hermes-gateway` | 允许 all | 允许 all |
+| `hermes-orchestrator` | `app=hermes-orchestrator` | 允许 all | 允许 gateway, redis, admin |
+| `hermes-redis-netpol` | `app=hermes-redis` | 允许 namespace 内 | 允许 all |
+| `sandbox-isolation` | `app=sandbox` | 允许 gateway | 允许 all |
+
+---
+
+## 部署步骤 (新集群)
+
+### 1. 创建命名空间 + 存储
+
+```bash
+kubectl apply -f kubernetes/namespace.yaml
+kubectl apply -f kubernetes/storage/
+```
+
+### 2. 创建 Secrets
+
+按上方 "创建 Secrets" 章节执行。
+
+### 3. 部署 PostgreSQL
+
+```bash
+kubectl apply -f kubernetes/postgres/
+# 等待 ready
+kubectl wait --for=condition=ready pod -l app=postgres -n hermes-agent --timeout=120s
+```
+
+### 4. 部署 Redis
+
+```bash
+kubectl apply -f kubernetes/redis/  # 或从 ConfigMap 创建
+# ConfigMap 内容见 kubernetes/ 目录
+```
+
+### 5. 部署 Gateway
+
+```bash
+# 根据需要部署 N 个 Gateway 实例
+kubectl apply -f kubernetes/gateway/deployment.yaml
+kubectl apply -f kubernetes/gateway/service.yaml
+kubectl apply -f kubernetes/gateway/rbac.yaml
+```
+
+### 6. 部署 WebUI
+
+```bash
+kubectl apply -f kubernetes/webui/
+# 确保 Service targetPort=48080 匹配容器 PORT
+```
+
+### 7. 部署 Orchestrator
+
+```bash
+kubectl apply -f kubernetes/orchestrator/
+```
+
+### 8. 部署 Admin
+
+```bash
+cd admin/kubernetes
+./deploy.sh
+# 或者手动：
+kubectl apply -f rbac.yaml
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+```
+
+### 9. 配置 Ingress
+
+```bash
+kubectl apply -f kubernetes/ingress-nginx/  # Ingress Controller
+# Admin + Gateway Ingress 路径已在 deploy.sh 或 manifest 中配置
+```
+
+### 10. 集群特定配置
+
+```bash
+# 按集群设置外部 URL（无需重建镜像）
+kubectl set env deployment/hermes-admin -n hermes-agent \
+  EXTERNAL_URL_PREFIX=http://<NODE_IP>:<INGRESS_PORT> \
+  EXTERNAL_WEBUI_URL=http://<NODE_IP>:48080 \
+  ADMIN_CORS_ORIGINS=http://<NODE_IP>:<INGRESS_PORT>
+```
+
+---
+
+## 用户注册/激活/WebUI 流程
+
+```
+1. 用户注册 POST /user/register {email, password, name}
+   → Admin DB 创建用户 (is_active=false)
+   → 同步注册到 WebUI 公开 signup API (非阻塞)
+
+2. 管理员激活 POST /user/{id}/activate {agent_id}
+   → 设置 is_active=true, agent_id=N
+   → 异步 Provisioning:
+     a. 用用户密码登录 WebUI 获取 JWT
+     b. 从 K8s Secret 获取 agent API Key
+     c. 配置 WebUI Direct Connection (per-user base_url + api_key)
+   → 更新 provisioning_status: completed | failed
+
+3. 用户对话 GET /user/webui-url (X-Email-Token)
+   → 返回 {url, email, password, provisioning_status}
+   → 前端用 iframe 加载 WebUI token-login.html 免密跳转
+```
+
+---
+
+## 升级流程
+
+### 镜像更新 (代码变更)
+
+```bash
+# 1. 构建
+docker build -f <dockerfile> -t <image>:latest <context>
+
+# 2. 导入
+docker save <image>:latest | sudo ctr -n k8s.io images import -
+# 测试集群:
+docker save <image>:latest | ssh root@172.32.153.183 '/opt/containerd/bin/ctr -n k8s.io images import -'
+
+# 3. 重启
+kubectl rollout restart deployment/<name> -n hermes-agent
+```
+
+### 配置更新 (无代码变更)
+
+```bash
+# 修改环境变量 (不需要重建镜像)
+kubectl set env deployment/hermes-admin -n hermes-agent KEY=VALUE
+
+# 修改 ConfigMap
+kubectl create configmap <name> --from-file=<path> -n hermes-agent --dry-run=client -o yaml | kubectl apply -f -
+kubectl rollout restart deployment/<name> -n hermes-agent
+
+# 修改 Secret
+kubectl edit secret <name> -n hermes-agent
+kubectl rollout restart deployment/<name> -n hermes-agent
+```
+
+### Gateway 扩容
+
+通过 Admin 面板创建新 Agent 会自动创建：
+1. Deployment `hermes-gateway-N`
+2. Service `hermes-gateway-N`
+3. Secret `hermes-gateway-N-secret`
+4. Ingress path `/agentN`
+5. PVC mount (hostPath)
+
+---
+
+## 健康检查
+
+| 组件 | Liveness | Readiness | 端点 |
+|------|----------|-----------|------|
+| hermes-admin | HTTP :48082 /health | HTTP :48082 /health | `GET /health` |
+| hermes-gateway-N | HTTP :8642 /health | HTTP :8642 /health | `GET /health` |
+| hermes-orchestrator | HTTP :8080 /health | HTTP :8080 /health | `GET /health` |
+| hermes-redis | TCP :6379 | TCP :6379 | (TCP check) |
+| hermes-webui | HTTP :48080 /health | HTTP :48080 /health | `GET /health` |
 
 ---
 
 ## 常见问题
 
-### Docker 构建失败
+### Ingress rewrite 规则
 
-**npm install 报 git SSH 错误：**
-```
-fatal: Could not read from remote repository
-```
-原因：whatsapp-bridge 依赖 `whiskeysockets/libsignal-node` 使用 SSH URL。
-Dockerfile 中已自动将 SSH URL 替换为 HTTPS，确保构建时不跳过该步骤。
+后端路由 **不要** 加 `/admin/api` 前缀。Ingress `rewrite-target: /$2` 会剥离路径前缀：
+- `/admin/api/agents` → 后端收到 `/agents`
+- `/agent1/v1/chat/completions` → 后端收到 `/v1/chat/completions`
 
-**Playwright 下载超时：**
+### Service targetPort 必须匹配容器 PORT
+
+WebUI 容器 `PORT=48080`，Service `targetPort` 必须是 `48080` 而非 `8080`。Service `port` 可以是 `8080`。
+
+### email token 认证
+
+用户登录后获得的 token 需通过 `X-Email-Token` header 传递（非 `Authorization: Bearer`）。Admin key 通过 `X-Admin-Key` header 传递。
+
+### 环境变量修改不需要重建镜像
+
+`WEBUI_INTERNAL_URL`、`EXTERNAL_WEBUI_URL` 等配置变更只需 `kubectl set env` + 自动 rollout，不需要重新构建 Docker 镜像。
+
+### 国内镜像构建
+
 ```bash
-# 设置代理
-HTTPS_PROXY=http://proxy:port docker build .
+# pip 国内源 (已在 Dockerfile 中配置)
+pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# npm 国内源
+npm config set registry https://registry.npmmirror.com
+
+# GitHub 代理
+export http_proxy=http://172.32.147.190:7890
 ```
 
-**构建后 Pod 崩溃 "hermes: no such user"：**
-确保 Dockerfile 中有 `useradd` 和 `COPY --from=gosu_source` 步骤。
+---
 
-### K8s 部署问题
+## 集群配置速查
 
-**Pod CrashLoopBackOff ".venv/bin/activate not found"：**
-Dockerfile 必须使用 `uv venv`（不带 `--system`），因为 entrypoint 依赖 `.venv/bin/activate`。
-
-**Admin RBAC 权限不足：**
-Admin 需要两个 Role：
-- Role `hermes-admin`：deployments/services/secrets/configmaps/ingresses 的 CRUD
-- ClusterRole `hermes-admin`：nodes/pods 的 get/list + metrics.k8s.io 权限
-
-**Ingress 404：**
-检查 ingress controller 是否运行：`kubectl get pods -n ingress-nginx` 或查看 `kubernetes/ingress-nginx/daemonset.yaml`。
-
-**Gateway 无法连接 PostgreSQL：**
-确保 `hermes-db-secret` 存在且密码正确。PostgreSQL 使用 StatefulSet，数据持久化在 hostPath `/data/hermes-postgres`。
-
-### Provider 配置问题
-
-**Agent 使用错误的 API 格式：**
-检查 `PROVIDER_API_MODE_MAP` → `PROVIDER_AGENT_MAP` → `PROVIDER_KEY_MAP` 三个映射链是否一致。
-
-**Anthropic SDK 重复 `/v1`：**
-Anthropic SDK 会自动追加 `/v1/messages`。如果 base_url 以 `/v1` 结尾会被自动去除。Admin 的 `strip_v1_suffix()` 处理了这个情况。
+| 配置项 | 184 (开发) | 183 (测试) |
+|--------|-----------|-----------|
+| 访问方式 | 本地 kubectl | SSH root@172.32.153.183 |
+| ctr 路径 | `/usr/bin/ctr` | `/opt/containerd/bin/ctr` |
+| Ingress 端口 | 40080 | 32570 |
+| WebUI 端口 | 48080 (NodePort 30480) | 48080 (NodePort) |
+| Gateway 数量 | 3 | 13 |
+| Admin external URL | `http://172.32.153.184:40080` | `http://172.32.153.183:32570` |
+| WebUI external URL | `http://172.32.153.184:48080` | `http://172.32.153.183:48080` |
+| Orchestrator | 有 | 有 |
+| PostgreSQL | StatefulSet + PVC | StatefulSet + PVC |
+| Admin DATABASE_URL | secret `postgres-secret/database-url` | secret `postgres-secret/database-url` |
+| Admin REDIS_PASSWORD | secret `hermes-redis-secret/redis-password` | secret `hermes-redis-secret/redis-password` |
+| Gateway REDIS_PASSWORD | secret `hermes-redis-secret/redis-password` | secret `hermes-redis-secret/redis-password` |
+| Gateway SKILL_REPORT | interval=300, admin=hermes-admin:48082 | interval=300, admin=hermes-admin:48082 |
+| WebUI Direct Connection | enabled (no global API URL) | enabled (no global API URL) |
+| WebUI SECRET_KEY | (auto-generated) | (auto-generated) |
+| Admin volume name | `hermes-data-root` | `hermes-data-root` |

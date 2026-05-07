@@ -17,8 +17,10 @@ from auth import (
     AuthContext,
     auth,
     check_login_rate,
+    find_agent_by_api_key,
     get_current_user,
     mint_email_token,
+    mint_user_token,
     verify_email_token,
 )
 from database import get_db
@@ -85,29 +87,68 @@ async def register(body: UserRegisterRequest, db: AsyncSession = Depends(get_db)
         password_hash=_hash_password(body.password),
         display_name=body.display_name,
         is_active=False,
+        webui_password=body.password,
     )
     db.add(user)
     await db.commit()
-    logger.info("User registered: %s (pending activation)", body.email)
+
+    # 同步注册到 WebUI（公开 signup 接口，无需管理员密码）
+    try:
+        from webui_provision import signup_webui_user
+        await signup_webui_user(body.email, body.password, body.display_name or body.email)
+        logger.info("User registered + WebUI account created: %s", body.email)
+    except Exception as e:
+        logger.warning("WebUI signup failed for %s (non-blocking): %s", body.email, e)
+
     return MessageResponse(message="Registration successful, pending admin activation")
 
 
 # ---------------------------------------------------------------------------
-# Email login
+# Unified login — auto-detects api_key vs email+password by request body
 # ---------------------------------------------------------------------------
 @router.post("/login")
-async def email_login(
+async def unified_login(
     request: Request,
-    body: EmailLoginRequest,
     db: AsyncSession = Depends(get_db),
 ):
     client_ip = request.client.host if request.client else "unknown"
     if check_login_rate(client_ip):
         raise HTTPException(status_code=429, detail="Too many attempts, please try again later")
 
-    result = await db.execute(select(User).where(User.email == body.email))
+    body = await request.json()
+    api_key = body.get("api_key", "")
+    email = body.get("email", "")
+    password = body.get("password", "")
+
+    # --- API key login ---
+    if api_key:
+        agent_id = await find_agent_by_api_key(api_key)
+        if agent_id is None:
+            logger.info("API key login failed for IP %s: no matching agent", client_ip)
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        token = mint_user_token(agent_id, api_key)
+
+        display_name = f"Agent #{agent_id}"
+        try:
+            from main import k8s
+            deployment_name = f"hermes-gateway-{agent_id}" if agent_id > 0 else "hermes-gateway"
+            deploy = await k8s.get_deployment(deployment_name)
+            if deploy and deploy.metadata.annotations:
+                display_name = deploy.metadata.annotations.get("hermes/display-name", display_name)
+        except Exception:
+            pass
+
+        logger.info("API key login success: agent_id=%d, IP=%s", agent_id, client_ip)
+        return {"token": token, "agent_id": agent_id, "display_name": display_name, "expires_in": 7200}
+
+    # --- Email + password login ---
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Provide either api_key or email+password")
+
+    result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
-    if not user or not _verify_password(body.password, user.password_hash):
+    if not user or not _verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     if not user.is_active:
@@ -271,13 +312,13 @@ async def get_webui_url(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.provisioning_status != "completed":
+    from webui_provision import EXTERNAL_WEBUI_URL
+
+    if user.provisioning_status not in ("completed",):
         raise HTTPException(status_code=400, detail="WebUI not provisioned yet")
 
     if not user.webui_password:
         raise HTTPException(status_code=400, detail="WebUI credentials expired, retry provision")
-
-    from webui_provision import EXTERNAL_WEBUI_URL
 
     return WebUILoginResponse(
         url=f"{EXTERNAL_WEBUI_URL}/api/v1/auths/signin",

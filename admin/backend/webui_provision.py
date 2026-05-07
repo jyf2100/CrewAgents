@@ -11,11 +11,11 @@ import httpx
 
 logger = logging.getLogger("hermes-admin.webui_provision")
 
-WEBUI_INTERNAL_URL = os.getenv("WEBUI_INTERNAL_URL", "http://hermes-webui:48080")
+WEBUI_INTERNAL_URL = os.getenv("WEBUI_INTERNAL_URL", "http://hermes-webui:8080")
 WEBUI_ADMIN_EMAIL = os.getenv("WEBUI_ADMIN_EMAIL", "rocju315@gmail.com")
 WEBUI_ADMIN_PASSWORD = os.getenv("WEBUI_ADMIN_PASSWORD", "")
 EXTERNAL_WEBUI_URL = os.getenv("EXTERNAL_WEBUI_URL", "http://localhost:48080")
-EXTERNAL_API_BASE = os.getenv("EXTERNAL_API_BASE", "http://172.32.153.184:40080")
+EXTERNAL_API_BASE = os.getenv("EXTERNAL_API_BASE", "")
 JWT_REFRESH_BUFFER = 3600
 
 _admin_jwt: str | None = None
@@ -109,6 +109,20 @@ async def signin(email: str, password: str) -> tuple[str, float]:
     return jwt_token, expires_at
 
 
+async def signup_webui_user(email: str, password: str, name: str) -> str:
+    """公开 signup 接口注册 WebUI 用户，无需管理员密码。"""
+    try:
+        result = await _webui_request("post", "/api/v1/auths/signup", json={
+            "email": email, "password": password, "name": name,
+        })
+        return result.get("id", "")
+    except Exception as e:
+        if "409" in str(e) or "already" in str(e).lower():
+            logger.info("WebUI user %s already exists, skipping signup", email)
+            return ""
+        raise
+
+
 async def get_or_refresh_jwt(user) -> str:
     if (user.webui_jwt and user.webui_jwt_expires_at
             and user.webui_jwt_expires_at > time.time() + JWT_REFRESH_BUFFER):
@@ -124,13 +138,24 @@ async def get_or_refresh_jwt(user) -> str:
 
 
 async def configure_direct_connection(jwt_token: str, api_url: str, api_key: str) -> None:
+    # model_ids=[] forces WebUI frontend to call getOpenAIModelsDirect()
+    # for live model discovery instead of using a static list.
+    configs = {"0": {
+        "enable": True,
+        "tags": [],
+        "prefix_id": "hermes",
+        "model_ids": [],
+        "connection_type": "external",
+        "auth_type": "bearer",
+    }}
+
     await _webui_request("post", "/api/v1/users/user/settings/update",
         headers={"Authorization": f"Bearer {jwt_token}"},
         json={
             "directConnections": {
                 "OPENAI_API_BASE_URLS": [api_url],
                 "OPENAI_API_KEYS": [api_key],
-                "OPENAI_API_CONFIGS": {},
+                "OPENAI_API_CONFIGS": configs,
             },
         },
     )
@@ -173,10 +198,25 @@ async def delete_webui_user(email: str) -> None:
 
 
 async def provision_user(user, agent_id: int) -> None:
-    password = _secrets.token_urlsafe(16)
+    if not EXTERNAL_API_BASE:
+        raise Exception("EXTERNAL_API_BASE env var is required but not set")
 
-    await _admin_create_user(user.email, password, user.display_name or user.email)
-    jwt_token, expires_at = await signin(user.email, password)
+    password = user.webui_password
+
+    if not password:
+        user.provisioning_status = "failed"
+        user.provisioning_error = "No WebUI password stored for user"
+        user.provisioning_updated_at = time.time()
+        return
+
+    # 登录获取 JWT（注册时已创建 WebUI 账号）
+    try:
+        jwt_token, expires_at = await signin(user.email, password)
+    except Exception:
+        # 密码不匹配（旧用户残留），用 admin API 强制重置
+        logger.warning("Signin failed for %s, resetting via admin API", user.email)
+        await _admin_create_user(user.email, password, user.display_name or user.email)
+        jwt_token, expires_at = await signin(user.email, password)
 
     api_url = f"{EXTERNAL_API_BASE}/agent{agent_id}/v1"
     api_key = await get_agent_api_key(agent_id)
@@ -185,7 +225,6 @@ async def provision_user(user, agent_id: int) -> None:
 
     user.webui_jwt = jwt_token
     user.webui_jwt_expires_at = expires_at
-    user.webui_password = password
     user.provisioning_status = "completed"
     user.provisioning_error = None
     user.provisioning_updated_at = time.time()

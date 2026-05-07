@@ -19,12 +19,14 @@ function ProvisioningBadge({ status, error, t }: {
     pending: "bg-yellow-500/15 text-yellow-400",
     failed: "bg-red-500/15 text-red-400",
     not_started: "bg-gray-500/15 text-gray-400",
+    skipped: "bg-gray-500/15 text-gray-400",
   };
   const labels: Record<string, string> = {
     completed: t.provisionCompleted,
     pending: t.provisionPending,
     failed: t.provisionFailed,
     not_started: t.provisionNotStarted,
+    skipped: t.provisionSkipped || "WebUI 未配置",
   };
 
   return (
