@@ -5,10 +5,9 @@ test.describe("Agent Detail Page", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsAdmin(page);
     await page.goto("/admin/");
-    // Wait for SPA to load agents
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.waitForTimeout(3000);
-    // Find agent links — could be "查看 ->" links or agent name links
+    // Find agent links
     const agentLinks = page.locator("a[href*='/agents/']");
     const viewLinks = page.getByText(/查看|view/i);
     const linkCount = await agentLinks.count();
@@ -23,14 +22,27 @@ test.describe("Agent Detail Page", () => {
     await page.waitForTimeout(2000);
   });
 
+  // ── Header and navigation ──
+
   test("renders agent detail with back button", async ({ page }) => {
     const backBtn = page.getByRole("button", { name: /back|返回/i });
     await expect(backBtn).toBeVisible();
   });
 
+  test("back button returns to dashboard", async ({ page }) => {
+    const backBtn = page.getByRole("button", { name: /back|返回/i });
+    const count = await backBtn.count();
+    if (count > 0) {
+      await backBtn.click();
+      await page.waitForURL(/\/admin\/?$/);
+      expect(page.url()).toMatch(/\/admin\/?$/);
+    }
+  });
+
+  // ── Tab navigation ──
+
   test("renders all tabs", async ({ page }) => {
     const body = await page.textContent("body");
-    // Should show tab navigation or content sections
     expect(body).toMatch(/overview|config|logs|health|总览|配置|日志|健康/i);
     await page.screenshot({ path: "test-results/agent-detail-tabs.png", fullPage: true });
   });
@@ -64,6 +76,8 @@ test.describe("Agent Detail Page", () => {
     expect(body).toBeTruthy();
   });
 
+  // ── Action buttons ──
+
   test("Restart button is visible in header", async ({ page }) => {
     const restartBtn = page.getByRole("button", { name: /restart|重启/i });
     const count = await restartBtn.count();
@@ -72,13 +86,48 @@ test.describe("Agent Detail Page", () => {
     }
   });
 
-  test("Back button returns to dashboard", async ({ page }) => {
-    const backBtn = page.getByRole("button", { name: /back|返回/i });
-    const count = await backBtn.count();
+  test("terminal tab is accessible", async ({ page }) => {
+    const terminalTab = page.getByText(/terminal|终端/i);
+    const count = await terminalTab.count();
     if (count > 0) {
-      await backBtn.click();
-      await page.waitForURL(/\/admin\/?$/);
-      expect(page.url()).toMatch(/\/admin\/?$/);
+      await terminalTab.first().click();
+      await page.waitForTimeout(2000);
+      await page.screenshot({ path: "test-results/agent-detail-terminal.png", fullPage: true });
+      const body = await page.textContent("body");
+      expect(body).toBeTruthy();
     }
+  });
+
+  // ── Agent info display ──
+
+  test("shows agent name/ID in page header", async ({ page }) => {
+    const body = await page.textContent("body");
+    // Should show agent ID or name (like hermes-gateway-1)
+    expect(body).toMatch(/hermes|gateway|agent/i);
+  });
+
+  test("shows agent status badge", async ({ page }) => {
+    const body = await page.textContent("body");
+    // Should show running/stopped/failed status
+    expect(body).toMatch(/running|stopped|failed|运行中|已停止|失败/i);
+  });
+
+  // ── Direct URL navigation ──
+
+  test("direct URL navigation to agent detail works", async ({ page }) => {
+    // Get current URL to extract agent ID
+    const url = page.url();
+    const match = url.match(/\/agents\/(\d+)/);
+    test.skip(!match, "Could not extract agent ID from URL");
+    // Navigate away then back
+    await page.goto("/admin/");
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.goto(url);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(2000);
+    // Should still show agent detail
+    expect(page.url()).toMatch(/\/admin\/agents\//);
+    const body = await page.textContent("body");
+    expect(body).not.toContain("输入管理员密钥");
   });
 });
