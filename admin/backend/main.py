@@ -36,7 +36,8 @@ from models import (
     WeixinStatusResponse, WeixinActionResponse,
     AgentMetadataUpdate,
     AgentMetadataResponse, AgentMetadataInternalResponse,
-    SkillReportItem, SkillReportRequest, SkillReportResponse,
+    SkillReportItem,
+    ResourceSpec,
 )
 from k8s_client import K8sClient
 from agent_manager import AgentManager
@@ -45,11 +46,12 @@ from templates import TemplateGenerator, deployment_name
 from weixin import stream_weixin_qr, start_qr_session, end_qr_session, read_weixin_status, unbind_weixin
 from swarm_routes import router as swarm_router
 from terminal import router as terminal_router
+from file_browser import router as file_browser_router
+from skill_scanner import scan_skills
 from user_routes import router as user_router
 from database import AsyncSessionLocal
 from db_models import AgentMetadata as AgentMetadataORM
 from db_models import AgentSkill as AgentSkillORM
-from db_models import ReportIdRecord as ReportIdRecordORM
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -98,6 +100,7 @@ app.state.admin_key = ADMIN_KEY
 # Include swarm router
 app.include_router(swarm_router)
 app.include_router(terminal_router)
+app.include_router(file_browser_router)
 app.include_router(user_router)
 
 
@@ -110,7 +113,7 @@ app.add_middleware(
     allow_origins=ADMIN_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "X-Admin-Key", "X-Internal-Token"],
+    allow_headers=["Authorization", "Content-Type", "X-Admin-Key", "X-User-Token", "X-Email-Token", "X-Internal-Token"],
 )
 
 
@@ -359,6 +362,21 @@ async def start_agent(request: Request, agent_id: int):
     return await manager.scale_agent(_aid(request, agent_id), replicas=1, action="start")
 
 
+@app.get(f"{API_PREFIX}/agents/{{agent_id}}/resources", response_model=ResourceSpec,
+         dependencies=[auth], tags=["agents"])
+async def get_agent_resources(agent_id: int, request: Request):
+    """Get current CPU/memory resource limits for an agent's deployment."""
+    effective_id = _aid(request, agent_id)
+    return await manager.get_resources(effective_id)
+
+
+@app.put(f"{API_PREFIX}/agents/{{agent_id}}/resources", response_model=ActionResponse,
+         dependencies=[auth, admin_only], tags=["agents"])
+async def update_agent_resources(agent_id: int, body: ResourceSpec, request: Request):
+    """Update CPU/memory resource limits for an agent's deployment. Triggers rolling restart."""
+    return await manager.update_resources(agent_id, body)
+
+
 # ===================================================================
 # Agent Metadata (tags / role)
 # ===================================================================
@@ -384,6 +402,10 @@ async def list_agent_metadata(request: Request):
                 "skills": r.skills or [],
                 "display_name": r.display_name or "",
                 "description": r.description or "",
+                "cpu_request": r.cpu_request or "250m",
+                "cpu_limit": r.cpu_limit or "1000m",
+                "memory_request": r.memory_request or "512Mi",
+                "memory_limit": r.memory_limit or "1Gi",
                 "updated_at": r.updated_at.timestamp() if r.updated_at else None,
             }
             for r in rows
@@ -406,6 +428,10 @@ async def get_agent_metadata(request: Request, agent_id: int):
             "skills": row.skills or [],
             "display_name": row.display_name or "",
             "description": row.description or "",
+            "cpu_request": row.cpu_request or "250m",
+            "cpu_limit": row.cpu_limit or "1000m",
+            "memory_request": row.memory_request or "512Mi",
+            "memory_limit": row.memory_limit or "1Gi",
             "updated_at": row.updated_at.timestamp() if row.updated_at else None,
         }
 
@@ -971,109 +997,7 @@ async def internal_all_metadata():
 
 
 # ===================================================================
-# Skill Reporting (Internal API — agent self-reporting)
-# ===================================================================
-
-@app.post(
-    "/internal/agents/{agent_number}/skills/report",
-    response_model=SkillReportResponse,
-    dependencies=[internal_auth],
-    tags=["internal"],
-)
-async def report_agent_skills(agent_number: int, body: SkillReportRequest):
-    """Accept a full-replace skill report from an agent gateway.
-
-    Idempotency: duplicate report_id returns "unchanged".
-    Semantics: DELETE old skills + INSERT new skills in a single transaction,
-    then aggregate tags into agent_metadata.skills JSONB.
-    """
-    async with AsyncSessionLocal() as session:
-        # --- Idempotency check (atomic via INSERT ... ON CONFLICT DO NOTHING) ---
-        if body.report_id:
-            idemp_stmt = pg_insert(ReportIdRecordORM).values(
-                report_id=body.report_id,
-                agent_number=agent_number,
-                skills_count=0,
-                tags_aggregated=[],
-            )
-            idemp_stmt = idemp_stmt.on_conflict_do_nothing(index_elements=["report_id"])
-            idemp_result = await session.execute(idemp_stmt)
-            await session.commit()
-            if idemp_result.rowcount == 0:
-                # Already processed — return cached result
-                existing = await session.get(ReportIdRecordORM, body.report_id)
-                return SkillReportResponse(
-                    status="unchanged",
-                    skills_count=existing.skills_count if existing else 0,
-                    tags_aggregated=existing.tags_aggregated if existing else [],
-                )
-
-        # --- Validate skill_dir paths ---
-        for skill in body.skills:
-            if skill.skill_dir and (".." in skill.skill_dir or skill.skill_dir.startswith("/")):
-                raise HTTPException(400, f"Invalid skill_dir: {skill.skill_dir}")
-
-        # --- Collect aggregated tags across all incoming skills ---
-        all_tags: set[str] = set()
-        for skill in body.skills:
-            for tag in skill.tags:
-                all_tags.add(tag.lower())
-
-        tags_sorted = sorted(all_tags)
-
-        # --- Full-replace: DELETE old + INSERT new (single transaction) ---
-        await session.execute(
-            delete(AgentSkillORM).where(AgentSkillORM.agent_number == agent_number)
-        )
-
-        for skill in body.skills:
-            row = AgentSkillORM(
-                agent_number=agent_number,
-                skill_name=skill.name,
-                description=skill.description,
-                version=skill.version,
-                tags=[t.lower() for t in skill.tags],
-                skill_dir=skill.skill_dir,
-                content_hash=skill.content_hash,
-            )
-            session.add(row)
-
-        # --- Upsert agent_metadata.skills JSONB ---
-        meta = await session.get(AgentMetadataORM, agent_number)
-        if meta is None:
-            meta = AgentMetadataORM(agent_number=agent_number, skills=tags_sorted)
-            session.add(meta)
-        else:
-            meta.skills = tags_sorted
-
-        # --- Record report_id for dedup (atomic upsert) ---
-        if body.report_id:
-            dedup_stmt = pg_insert(ReportIdRecordORM).values(
-                report_id=body.report_id,
-                agent_number=agent_number,
-                skills_count=len(body.skills),
-                tags_aggregated=tags_sorted,
-            )
-            dedup_stmt = dedup_stmt.on_conflict_do_update(
-                index_elements=["report_id"],
-                set_={
-                    "skills_count": dedup_stmt.excluded.skills_count,
-                    "tags_aggregated": dedup_stmt.excluded.tags_aggregated,
-                },
-            )
-            await session.execute(dedup_stmt)
-
-        await session.commit()
-
-        return SkillReportResponse(
-            status="accepted",
-            skills_count=len(body.skills),
-            tags_aggregated=tags_sorted,
-        )
-
-
-# ===================================================================
-# Skill Queries (Frontend display)
+# Skill Discovery (Admin scans agent pods — no gateway coupling)
 # ===================================================================
 
 @app.get(
@@ -1082,12 +1006,76 @@ async def report_agent_skills(agent_number: int, body: SkillReportRequest):
     dependencies=[auth],
     tags=["agents-metadata"],
 )
-async def get_agent_skills(agent_id: int):
-    """Return the installed skills for a single agent (for frontend MetadataCard)."""
+async def get_agent_skills(agent_id: int, request: Request):
+    """Scan agent pod for installed skills and cache results.
+
+    If the pod is running, exec into it to read SKILL.md files, then
+    full-replace the agent_skills DB table.  If the pod is not running,
+    fall back to the last cached result from the database.
+    """
+    effective_id = _aid(request, agent_id)
+
+    # Try live scan from pod
+    try:
+        dname = deployment_name(effective_id)
+        pods = await k8s.get_pods_for_deployment(dname)
+        running_pod = None
+        for p in pods:
+            if p.status.phase == "Running":
+                running_pod = p
+                break
+
+        if running_pod:
+            scanned = await scan_skills(k8s, running_pod.metadata.name)
+            if scanned is not None:
+                # Cache to DB (full-replace) — use no_autoflush to prevent premature INSERT before DELETE completes
+                async with AsyncSessionLocal() as session:
+                    with session.no_autoflush:
+                        await session.execute(
+                            delete(AgentSkillORM).where(AgentSkillORM.agent_number == effective_id)
+                        )
+                        for s in scanned:
+                            row = AgentSkillORM(
+                                agent_number=effective_id,
+                                skill_name=s["name"],
+                                description=s.get("description", ""),
+                                version=s.get("version", ""),
+                                tags=[t.lower() for t in s.get("tags", [])],
+                                skill_dir=s.get("skill_dir", ""),
+                                content_hash=s.get("content_hash", ""),
+                            )
+                            session.add(row)
+
+                        # Update aggregated tags in metadata
+                        all_tags = sorted({t.lower() for s in scanned for t in s.get("tags", [])})
+                        meta = await session.get(AgentMetadataORM, effective_id)
+                        if meta is None:
+                            meta = AgentMetadataORM(agent_number=effective_id, skills=all_tags)
+                            session.add(meta)
+                        else:
+                            meta.skills = all_tags
+
+                        await session.commit()
+
+                return [
+                    SkillReportItem(
+                        name=s["name"],
+                        description=s.get("description", ""),
+                        version=s.get("version", ""),
+                        tags=s.get("tags", []),
+                        skill_dir=s.get("skill_dir", ""),
+                        content_hash=s.get("content_hash", ""),
+                    )
+                    for s in scanned
+                ]
+    except Exception as e:
+        logger.warning("Failed to scan skills from pod for agent %s: %s", effective_id, e)
+
+    # Fallback: return cached results from DB
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(AgentSkillORM)
-            .where(AgentSkillORM.agent_number == agent_id)
+            .where(AgentSkillORM.agent_number == effective_id)
             .order_by(AgentSkillORM.skill_name)
         )
         rows = result.scalars().all()

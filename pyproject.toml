@@ -85,6 +85,7 @@ orchestrator = [
     "redis[hiredis]>=5.0,<6",
     "kubernetes-asyncio>=31.0,<32",
     "pydantic>=2.12.5,<3",
+    "asyncpg>=0.29,<1",
 ]
 web = ["fastapi>=0.104.0,<1", "uvicorn[standard]>=0.24.0,<1"]
 rl = [

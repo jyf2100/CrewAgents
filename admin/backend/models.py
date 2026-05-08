@@ -2,7 +2,7 @@ from __future__ import annotations
 import datetime
 import re
 from enum import Enum
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from constants import PROVIDER_URL_MAP
@@ -489,7 +489,7 @@ class RebindAgentRequest(BaseModel):
 
 # ── Agent Metadata ──
 
-TagStr = Annotated[str, StringConstraints(max_length=50, pattern=r"^[a-z0-9][a-z0-9_-]*$")]
+TagStr = Annotated[str, StringConstraints(max_length=50, pattern=r"^[^\s]")]
 
 # Valid domain values (extensible)
 DOMAINS = ["generalist", "code", "data", "ops", "creative"]
@@ -498,7 +498,7 @@ DOMAIN_PATTERN = "|".join(DOMAINS)
 
 class AgentMetadataUpdate(BaseModel):
     tags: list[TagStr] = Field(default_factory=list, max_length=20)
-    role: str = Field(default="generalist", pattern=r"^(coder|analyst|generalist)$")
+    role: str = Field(default="generalist", pattern=rf"^(coder|analyst|{DOMAIN_PATTERN})$")
     domain: str = Field(default="generalist", pattern=rf"^({DOMAIN_PATTERN})$")
     display_name: str | None = Field(default=None, max_length=100)
     description: str | None = Field(default=None, max_length=500)
@@ -512,6 +512,10 @@ class AgentMetadataResponse(BaseModel):
     skills: list[str] = []
     display_name: str = ""
     description: str = ""
+    cpu_request: str = "250m"
+    cpu_limit: str = "1000m"
+    memory_request: str = "512Mi"
+    memory_limit: str = "1Gi"
     updated_at: float | None = None
 
 
@@ -521,6 +525,39 @@ class AgentMetadataInternalResponse(BaseModel):
     role: str
     domain: str = "generalist"
     skills: list[str] = []
+
+
+# ---------------------------------------------------------------------------
+# File Browser
+# ---------------------------------------------------------------------------
+class FileEntryResponse(BaseModel):
+    name: str
+    type: Literal["d", "f", "l"]
+    size: int
+
+
+class FileListResponse(BaseModel):
+    path: str
+    entries: list[FileEntryResponse]
+
+
+class FileReadResponse(BaseModel):
+    path: str
+    content: str | None = None
+    size: int
+    truncated: bool = False
+    binary: bool | None = None
+    message: str | None = None
+
+
+class FileUploadResponse(BaseModel):
+    path: str
+    size: int
+
+
+class FileDeleteResponse(BaseModel):
+    path: str
+    success: bool
 
 
 # ── Skill Reporting ──

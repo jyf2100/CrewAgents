@@ -4,16 +4,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import secrets as _secrets
 import struct
 import threading
 import time
-from typing import Optional
-from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
+
+from auth import auth
+from path_utils import validate_path, sanitize_filename, check_file_rate_limit
 
 logger = logging.getLogger("hermes-admin.terminal")
 
@@ -55,27 +55,6 @@ def _verify_terminal_token(agent_id: int, token: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Auth — dual-mode (admin key + user token)
-# ---------------------------------------------------------------------------
-try:
-    from auth import auth as _auth
-    auth = _auth
-except ImportError:
-    async def _verify_admin_key(
-        x_admin_key: str = Header(..., alias="X-Admin-Key"),
-        request: Request = None,
-    ):
-        import hmac
-        admin_key = getattr(request.app.state, "admin_key", "")
-        if not admin_key:
-            return True
-        if not hmac.compare_digest(x_admin_key, admin_key):
-            raise HTTPException(status_code=401, detail="Invalid admin key")
-        return True
-    auth = Depends(_verify_admin_key)
-
-
-# ---------------------------------------------------------------------------
 # Token endpoint
 # ---------------------------------------------------------------------------
 @router.get("/agents/{agent_id}/terminal/token", dependencies=[auth])
@@ -94,11 +73,15 @@ async def get_terminal_token(agent_id: int, request: Request):
 # ---------------------------------------------------------------------------
 # File download from pod
 # ---------------------------------------------------------------------------
+MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024  # 50MB
+
+
 @router.get("/agents/{agent_id}/terminal/download", dependencies=[auth])
 async def download_file(request: Request, agent_id: int, path: str = Query(..., alias="path")):
     """Download a file from the agent pod."""
     override = getattr(request.state, 'agent_id', None)
     effective_id = override if override is not None else agent_id
+    check_file_rate_limit(effective_id)
 
     from main import k8s
     deployment_name = f"hermes-gateway-{effective_id}"
@@ -111,16 +94,22 @@ async def download_file(request: Request, agent_id: int, path: str = Query(..., 
     if not pod_name:
         raise HTTPException(status_code=404, detail="No running pod found")
 
-    # Sanitize path
-    file_path = unquote(path).strip()
-    if not file_path.startswith("/"):
-        file_path = "/" + file_path
+    # Sanitize path — validate against allowlist
+    file_path = validate_path(path)
+
+    # Size precheck to prevent memory DoS
+    file_size = await k8s.get_file_size(pod_name, file_path)
+    if file_size < 0:
+        raise HTTPException(status_code=404, detail="File not found")
+    if file_size > MAX_DOWNLOAD_SIZE:
+        raise HTTPException(status_code=403, detail="File too large for download")
 
     content, error = await k8s.read_file_from_pod(pod_name, file_path)
     if error:
-        raise HTTPException(status_code=404, detail=error)
+        safe_error = "File not found" if "not found" in error.lower() else "Access denied"
+        raise HTTPException(status_code=404, detail=safe_error)
 
-    filename = os.path.basename(file_path) or "file"
+    filename = sanitize_filename(file_path)
     return Response(
         content=content,
         media_type="application/octet-stream",

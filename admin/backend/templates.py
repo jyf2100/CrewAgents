@@ -167,7 +167,10 @@ class TemplateGenerator:
                 "selector": {"matchLabels": {"app": name}},
                 "template": {
                     "metadata": {
-                        "labels": {"app": name},
+                        "labels": {
+                            "app": name,
+                            "app.kubernetes.io/component": "gateway",
+                        },
                         **({"annotations": pod_annotations} if pod_annotations else {}),
                     },
                     "spec": {
@@ -192,6 +195,7 @@ class TemplateGenerator:
                                 {"name": "SANDBOX_TTL_MINUTES", "value": "30"},
                                 {"name": "SWARM_REDIS_URL", "value": "redis://hermes-redis:6379/0"},
                                 {"name": "K8S_DEPLOYMENT", "value": name},
+                                {"name": "HERMES_AGENT_NUMBER", "value": str(agent_number)},
                             ],
                             "resources": {
                                 "requests": {"cpu": resources.cpu_request, "memory": resources.memory_request},

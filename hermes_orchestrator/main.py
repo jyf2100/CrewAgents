@@ -14,6 +14,7 @@ import redis as _redis
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from hermes_orchestrator import db
 from hermes_orchestrator.config import OrchestratorConfig
 from hermes_orchestrator.middleware.auth import create_auth_middleware
 from hermes_orchestrator.models.api import (
@@ -52,6 +53,12 @@ async def lifespan(app: FastAPI):
 
     config = app.state.config
 
+    if config.database_url:
+        await db.init_pool(config.database_url)
+        config.database_url = ""
+    else:
+        logger.info("DATABASE_URL not set — metadata will use K8s annotation fallback")
+
     redis_client = _redis.Redis.from_url(config.redis_url, decode_responses=True)
     task_store = RedisTaskStore(redis_client)
     agent_registry = RedisAgentRegistry(redis_client)
@@ -77,6 +84,7 @@ async def lifespan(app: FastAPI):
     yield
 
     health_monitor.stop()
+    await db.close_pool()
     if discovery:
         await discovery.close()
     health_task.cancel()
@@ -547,9 +555,8 @@ async def _run_discovery_loop():
                         recovery_timeout=config.circuit_recovery_timeout,
                     )
             for gone in existing - discovered:
-                await loop.run_in_executor(
-                    None, agent_registry.update_status, gone, "offline"
-                )
+                await loop.run_in_executor(None, agent_registry.deregister, gone)
+                circuits.pop(gone, None)
         except asyncio.CancelledError:
             raise
         except Exception as e:

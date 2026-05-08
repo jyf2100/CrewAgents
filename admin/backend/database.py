@@ -105,6 +105,23 @@ _MIGRATION_SQL: list[str] = [
     CREATE INDEX IF NOT EXISTS ix_agent_metadata_skills
       ON agent_metadata USING gin (skills)
     """,
+    # Resource spec columns on agent_metadata
+    """
+    ALTER TABLE agent_metadata
+      ADD COLUMN IF NOT EXISTS cpu_request VARCHAR(20) DEFAULT '250m'
+    """,
+    """
+    ALTER TABLE agent_metadata
+      ADD COLUMN IF NOT EXISTS cpu_limit VARCHAR(20) DEFAULT '1000m'
+    """,
+    """
+    ALTER TABLE agent_metadata
+      ADD COLUMN IF NOT EXISTS memory_request VARCHAR(20) DEFAULT '512Mi'
+    """,
+    """
+    ALTER TABLE agent_metadata
+      ADD COLUMN IF NOT EXISTS memory_limit VARCHAR(20) DEFAULT '1Gi'
+    """,
 ]
 
 _CLEANUP_SQL = """

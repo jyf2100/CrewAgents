@@ -61,6 +61,11 @@ class AgentMetadata(Base):
     )
     # --- end Phase 0 ---
     description = Column(Text, default="")
+    # Resource specs (persisted from K8s for user-mode viewing)
+    cpu_request = Column(String(20), default="250m", server_default="250m")
+    cpu_limit = Column(String(20), default="1000m", server_default="1000m")
+    memory_request = Column(String(20), default="512Mi", server_default="512Mi")
+    memory_limit = Column(String(20), default="1Gi", server_default="1Gi")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 

@@ -62,7 +62,7 @@ export function getAuthHeaders(): Record<string, string> {
   return { "X-Admin-Key": key };
 }
 
-function clearAuth(): void {
+export function clearAuth(): void {
   const mode = getAuthMode();
   if (mode === "email") {
     localStorage.removeItem("admin_email_token");
@@ -88,8 +88,9 @@ export async function adminFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${ADMIN_BASE}${path}`;
+  const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...getAuthHeaders(),
     ...(options.headers as Record<string, string> | undefined),
   };
@@ -494,6 +495,10 @@ export interface AgentMetadata {
   skills?: string[]; // New — routing tags aggregated from AgentSkill table
   display_name?: string;
   description?: string;
+  cpu_request?: string;
+  cpu_limit?: string;
+  memory_request?: string;
+  memory_limit?: string;
   updated_at?: number;
 }
 
@@ -502,6 +507,48 @@ export interface SkillEntry {
   description: string;
   version?: string;
   tags?: string[];
+}
+
+
+// ---------------------------------------------------------------------------
+// File Browser
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  name: string;
+  type: "d" | "f" | "l";
+  size: number;
+}
+
+export interface FileListResponse {
+  path: string;
+  entries: FileEntry[];
+}
+
+export interface FileReadResponse {
+  path: string;
+  content: string | null;
+  size: number;
+  truncated: boolean;
+  binary?: boolean;
+  message?: string;
+}
+
+export interface FileUploadResponse {
+  path: string;
+  size: number;
+}
+
+export interface FileDeleteResponse {
+  path: string;
+  success: boolean;
+}
+
+export interface ResourceSpec {
+  cpu_request: string;
+  cpu_limit: string;
+  memory_request: string;
+  memory_limit: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -761,7 +808,7 @@ export const adminApi = {
     return adminFetch(`/agents/${agentId}/events`);
   },
 
-  getAgentResources(agentId: number): Promise<Record<string, unknown>> {
+  getAgentResources(agentId: number): Promise<ResourceSpec> {
     return adminFetch(`/agents/${agentId}/resources`);
   },
 
@@ -911,5 +958,39 @@ export const adminApi = {
   // -- Orchestrator Skill Tags --
   getSkillTags(): Promise<{ tags: string[]; domain_distribution: Record<string, number> }> {
     return adminFetch("/orchestrator/skill-tags");
+  },
+
+  // -- File Browser --
+  listFiles(agentId: number, path: string): Promise<FileListResponse> {
+    return adminFetch(`/agents/${agentId}/files/list?path=${encodeURIComponent(path)}`);
+  },
+
+  readFile(agentId: number, path: string): Promise<FileReadResponse> {
+    return adminFetch(`/agents/${agentId}/files/read?path=${encodeURIComponent(path)}`);
+  },
+
+  // -- File Upload/Delete --
+  async uploadFile(agentId: number, file: File, path: string = "/opt/data/skills"): Promise<FileUploadResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("path", path);
+    return adminFetch(`/agents/${agentId}/files/upload`, {
+      method: "POST",
+      body: formData,
+    });
+  },
+
+  deleteFile(agentId: number, path: string): Promise<FileDeleteResponse> {
+    return adminFetch(`/agents/${agentId}/files/delete?path=${encodeURIComponent(path)}`, {
+      method: "DELETE",
+    });
+  },
+
+  // -- Agent Resources --
+  updateAgentResources(agentId: number, resources: ResourceSpec): Promise<ActionResponse> {
+    return adminFetch(`/agents/${agentId}/resources`, {
+      method: "PUT",
+      body: JSON.stringify(resources),
+    });
   },
 };

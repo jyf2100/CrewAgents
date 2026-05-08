@@ -20,7 +20,8 @@ from models import (
     ActionResponse, AgentDetailResponse, AgentListResponse, AgentStatus, AgentSummary,
     BackupRequest, BackupResponse, ClusterStatusResponse, ContainerStatus, CreateAgentRequest,
     CreateAgentResponse, CreateStepStatus, EnvVariable, EventListResponse,
-    HealthResponse, K8sEvent, MessageResponse, NodeInfo, PodInfo, ResourceUsage,
+    HealthResponse, K8sEvent, MessageResponse, NodeInfo, PodInfo, ResourceSpec,
+    ResourceUsage,
     TestLLMRequest, TestLLMResponse, DefaultResourceLimits, EventType,
     TestAgentApiResponse,
 )
@@ -30,6 +31,7 @@ from constants import SECRET_PATTERNS, PROVIDER_URL_MAP, format_age, determine_a
 from templates import deployment_name
 from database import AsyncSessionLocal
 from db_models import AgentMetadata, AgentSkill, ReportIdRecord
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 logger = logging.getLogger(__name__)
 
@@ -379,15 +381,31 @@ class AgentManager:
         created = True  # Resources created successfully
 
         # Write metadata to PostgreSQL (best-effort, non-blocking)
-        # Use merge() so that re-creating an agent whose row already exists
-        # does not raise a primary-key violation.
+        # Use pg_insert ... on conflict do update so that re-creating an agent
+        # whose row already exists does not raise a primary-key violation,
+        # and does not overwrite existing tags/role/domain/skills/description.
         try:
             async with AsyncSessionLocal() as db_session:
-                metadata = AgentMetadata(
-                    agent_number=agent_num,
-                    display_name=req.display_name or "",
+                meta_values = {
+                    "agent_number": agent_num,
+                    "display_name": req.display_name or "",
+                    "cpu_request": req.resources.cpu_request,
+                    "cpu_limit": req.resources.cpu_limit,
+                    "memory_request": req.resources.memory_request,
+                    "memory_limit": req.resources.memory_limit,
+                }
+                stmt = pg_insert(AgentMetadata).values(**meta_values)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["agent_number"],
+                    set_={
+                        "display_name": stmt.excluded.display_name,
+                        "cpu_request": stmt.excluded.cpu_request,
+                        "cpu_limit": stmt.excluded.cpu_limit,
+                        "memory_request": stmt.excluded.memory_request,
+                        "memory_limit": stmt.excluded.memory_limit,
+                    },
                 )
-                await db_session.merge(metadata)
+                await db_session.execute(stmt)
                 await db_session.commit()
         except Exception as e:
             logger.warning("Failed to write AgentMetadata for agent %s: %s", agent_num, e)
@@ -473,6 +491,80 @@ class AgentManager:
         patch = {"spec": {"replicas": replicas}}
         await self.k8s.patch_deployment(name, patch)
         return ActionResponse(agent_number=agent_id, action=action, success=True, message=f"Scaled to {replicas}")
+
+    # --- Get Agent Resources ---
+    async def get_resources(self, agent_id: int) -> ResourceSpec:
+        name = deployment_name(agent_id)
+        dep = await self.k8s.get_deployment(name)
+        if dep is None:
+            raise HTTPException(404, f"Agent {name} not found")
+        for c in dep.spec.template.spec.containers:
+            if c.name == "gateway":
+                r = c.resources
+                return ResourceSpec(
+                    cpu_request=r.requests.get("cpu", "250m") if r.requests else "250m",
+                    cpu_limit=r.limits.get("cpu", "1000m") if r.limits else "1000m",
+                    memory_request=r.requests.get("memory", "512Mi") if r.requests else "512Mi",
+                    memory_limit=r.limits.get("memory", "1Gi") if r.limits else "1Gi",
+                )
+        return ResourceSpec()
+
+    # --- Update Agent Resources ---
+    async def update_resources(self, agent_id: int, resources: ResourceSpec) -> ActionResponse:
+        name = deployment_name(agent_id)
+        dep = await self.k8s.get_deployment(name)
+        if dep is None:
+            raise HTTPException(404, f"Agent {name} not found")
+
+        patch = {
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "kubectl.kubernetes.io/restartedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        },
+                    },
+                    "spec": {
+                        "containers": [{
+                            "name": "gateway",
+                            "resources": {
+                                "requests": {
+                                    "cpu": resources.cpu_request,
+                                    "memory": resources.memory_request,
+                                },
+                                "limits": {
+                                    "cpu": resources.cpu_limit,
+                                    "memory": resources.memory_limit,
+                                },
+                            },
+                        }],
+                    },
+                },
+            },
+        }
+        await self.k8s.patch_deployment(name, patch)
+
+        # Persist resource specs to database
+        try:
+            async with AsyncSessionLocal() as db_session:
+                row = await db_session.get(AgentMetadata, agent_id)
+                if row is None:
+                    row = AgentMetadata(agent_number=agent_id)
+                    db_session.add(row)
+                row.cpu_request = resources.cpu_request
+                row.cpu_limit = resources.cpu_limit
+                row.memory_request = resources.memory_request
+                row.memory_limit = resources.memory_limit
+                await db_session.commit()
+        except Exception as e:
+            logger.warning("Failed to persist resource specs for agent %s: %s", agent_id, e)
+
+        return ActionResponse(
+            agent_number=agent_id,
+            action="update_resources",
+            success=True,
+            message=f"Resources updated: CPU {resources.cpu_request}-{resources.cpu_limit}, Memory {resources.memory_request}-{resources.memory_limit}. Restarting pod.",
+        )
 
     # --- Health Check ---
     async def check_health(self, agent_id: int) -> HealthResponse:

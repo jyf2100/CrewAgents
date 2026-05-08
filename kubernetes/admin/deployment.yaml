@@ -38,7 +38,7 @@ spec:
             - name: PYTHONUNBUFFERED
               value: "1"
             - name: EXTERNAL_URL_PREFIX
-              value: http://172.32.153.184:40080
+              value: http://172.32.153.183:32570
             - name: SWARM_REDIS_URL
               value: redis://:$(REDIS_PASSWORD)@hermes-redis:6379/0
             - name: REDIS_PASSWORD
@@ -56,6 +56,16 @@ spec:
                 secretKeyRef:
                   name: hermes-admin-internal-secret
                   key: admin_internal_token
+            - name: WEBUI_INTERNAL_URL
+              value: "http://hermes-webui:8080"
+            - name: EXTERNAL_WEBUI_URL
+              value: "http://172.32.153.183:32570"
+            - name: EXTERNAL_API_BASE
+              value: "http://172.32.153.183:32570"
+            - name: WEBUI_ADMIN_EMAIL
+              value: "rocju315@gmail.com"
+            - name: WEBUI_ADMIN_PASSWORD
+              value: "HermesAdmin2026!"
           resources:
             requests:
               cpu: 100m
