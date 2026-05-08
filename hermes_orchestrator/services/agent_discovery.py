@@ -4,13 +4,11 @@ import asyncio
 import base64
 import json
 import logging
-import os
 import re
 import time
 from typing import TYPE_CHECKING
 
-import httpx
-
+from hermes_orchestrator import db
 from hermes_orchestrator.models.agent import AgentProfile, AgentCapability
 from hermes_orchestrator.services.agent_selector import ROLE_TO_DOMAIN
 
@@ -34,39 +32,12 @@ _AGENT_KEY_MAP: dict[str, str] = {
 }
 
 
-class _CircuitBreaker:
-    """Simple circuit breaker for Admin API calls."""
-
-    def __init__(self, failure_threshold: int = 3, cooldown: float = 300):
-        self._failures = 0
-        self._threshold = failure_threshold
-        self._cooldown = cooldown
-        self._last_failure: float = 0
-
-    @property
-    def is_open(self) -> bool:
-        if self._failures < self._threshold:
-            return False
-        return time.time() - self._last_failure < self._cooldown
-
-    def success(self):
-        self._failures = 0
-
-    def failure(self):
-        self._failures += 1
-        self._last_failure = time.time()
-
-
 class AgentDiscoveryService:
     def __init__(self, config: OrchestratorConfig):
         self._config = config
         self._api_key_cache: dict[str, str] = {}
         self._k8s_api: k8s_client_module.CoreV1Api | None = None
         self._k8s_client_module: k8s_client_module | None = None
-        # Admin API integration (Phase 2)
-        self._admin_url = os.getenv("ADMIN_INTERNAL_URL", "")
-        self._admin_token = os.getenv("ADMIN_INTERNAL_TOKEN", "")
-        self._admin_cb = _CircuitBreaker()
         self._metadata_cache: dict[int, dict] = {}
         self._metadata_cache_ts: float = 0
 
@@ -179,33 +150,25 @@ class AgentDiscoveryService:
         return int(match.group(1)) if match else None
 
     async def _fetch_agent_metadata(self) -> dict[int, dict]:
-        """Fetch agent tags/role/domain/skills from Admin API.
+        """Fetch agent tags/role/domain/skills from PostgreSQL.
 
         Returns {agent_number: {tags, role, domain, skills}}.
+        Cached for 30 seconds in memory.
         """
         if self._metadata_cache and time.time() - self._metadata_cache_ts < 30:
             return self._metadata_cache
-        if not self._admin_url or not self._admin_token or self._admin_cb.is_open:
-            return {}
-        try:
-            async with httpx.AsyncClient(timeout=3) as client:
-                resp = await client.get(
-                    f"{self._admin_url}/internal/agents/metadata",
-                    headers={"X-Internal-Token": self._admin_token},
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    result = {item["agent_number"]: item for item in data}
-                    self._metadata_cache = result
-                    self._metadata_cache_ts = time.time()
-                    self._admin_cb.success()
-                    return result
-        except Exception:
-            self._admin_cb.failure()
-            logger.debug(
-                "Admin metadata API unavailable (failures=%d)",
-                self._admin_cb._failures,
+        result = await db.fetch_agent_metadata()
+        if result:
+            self._metadata_cache = result
+            self._metadata_cache_ts = time.time()
+            return result
+        # DB returned nothing -- use stale cache if available
+        if self._metadata_cache:
+            logger.warning(
+                "DB metadata fetch empty; serving stale cache (age=%.0fs)",
+                time.time() - self._metadata_cache_ts,
             )
+            return self._metadata_cache
         return {}
 
     async def discover_pods(self) -> list[AgentProfile]:
@@ -218,7 +181,7 @@ class AgentDiscoveryService:
             namespace=self._config.k8s_namespace,
             label_selector=GATEWAY_LABEL,
         )
-        admin_meta = await self._fetch_agent_metadata()
+        db_meta = await self._fetch_agent_metadata()
         profiles = []
         for pod in pods.items:
             if pod.status.phase != "Running" or not pod.status.pod_ip:
@@ -227,19 +190,15 @@ class AgentDiscoveryService:
             api_key = await self._get_api_key(agent_name)
             profile = self._pod_to_profile(pod)
             profile.api_key = api_key
-            # Check Admin DB first, fall back to K8s annotations
+            # DB first, fall back to K8s annotations
             agent_number = self._extract_agent_number(agent_name)
-            meta = admin_meta.get(agent_number) if agent_number else None
+            meta = db_meta.get(agent_number) if agent_number else None
             if meta:
                 profile.tags = meta.get("tags", [])
                 profile.role = meta.get("role", "generalist")
-                # Read domain from Admin API (fallback to role mapping)
-                admin_domain = meta.get("domain", "")
-                if admin_domain:
-                    profile.domain = admin_domain
-                else:
-                    profile.domain = ROLE_TO_DOMAIN.get(profile.role, "generalist")
-                # Read skills from Admin API (aggregated from AgentSkill)
+                # Read domain from DB (fallback to role mapping)
+                profile.domain = meta.get("domain", "") or ROLE_TO_DOMAIN.get(profile.role, "generalist")
+                # Read skills from DB (aggregated from AgentSkill)
                 profile.skills = meta.get("skills", [])
             else:
                 annotations = pod.metadata.annotations or {}

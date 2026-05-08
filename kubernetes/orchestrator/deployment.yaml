@@ -50,13 +50,12 @@ spec:
               value: "hermes-agent"
             - name: LOG_LEVEL
               value: "INFO"
-            - name: ADMIN_INTERNAL_URL
-              value: "http://hermes-admin:48082"
-            - name: ADMIN_INTERNAL_TOKEN
+            - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: hermes-admin-internal-secret
-                  key: admin_internal_token
+                  name: hermes-orchestrator-secret
+                  key: DATABASE_URL
+                  optional: true
           readinessProbe:
             httpGet:
               path: /health
