@@ -550,6 +550,30 @@ export interface Translations {
   fileItemSingle: string;
   fileItemPlural: string;
   fileDownloading: string;
+
+  // File Upload/Delete
+  fileUpload: string;
+  fileUploadSuccess: string;
+  fileUploadError: string;
+  fileUploadTooLarge: string;
+  fileDelete: string;
+  fileDeleteConfirm: string;
+  fileDeleteSuccess: string;
+  fileDeleteError: string;
+  fileUploadOnlySkills: string;
+
+  // Agent Resources Edit
+  resourceEdit: string;
+  resourceEditTitle: string;
+  resourceCpuRequest: string;
+  resourceCpuLimit: string;
+  resourceMemRequest: string;
+  resourceMemLimit: string;
+  resourceSave: string;
+  resourceSaving: string;
+  resourceSuccess: string;
+  resourceError: string;
+  resourceRestartNote: string;
 }
 
 export const zh: Translations = {
@@ -1128,4 +1152,28 @@ export const zh: Translations = {
   fileItemSingle: "个项",
   fileItemPlural: "个项",
   fileDownloading: "下载中...",
+
+  // File Upload/Delete
+  fileUpload: "上传",
+  fileUploadSuccess: "文件上传成功",
+  fileUploadError: "上传失败",
+  fileUploadTooLarge: "文件太大（最大 10MB）",
+  fileDelete: "删除",
+  fileDeleteConfirm: "确认删除此文件？",
+  fileDeleteSuccess: "文件已删除",
+  fileDeleteError: "删除失败",
+  fileUploadOnlySkills: "仅支持在 /opt/data/skills 目录上传",
+
+  // Agent Resources Edit
+  resourceEdit: "编辑资源",
+  resourceEditTitle: "编辑 Agent 资源配置",
+  resourceCpuRequest: "CPU 请求",
+  resourceCpuLimit: "CPU 上限",
+  resourceMemRequest: "内存请求",
+  resourceMemLimit: "内存上限",
+  resourceSave: "保存并重启",
+  resourceSaving: "更新中...",
+  resourceSuccess: "资源配置已更新，Pod 正在重启。",
+  resourceError: "更新资源配置失败",
+  resourceRestartNote: "Pod 将重启以应用新的资源配置。",
 };

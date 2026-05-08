@@ -575,4 +575,28 @@ export const en: Translations = {
   fileItemSingle: "item",
   fileItemPlural: "items",
   fileDownloading: "Downloading...",
+
+  // File Upload/Delete
+  fileUpload: "Upload",
+  fileUploadSuccess: "File uploaded successfully",
+  fileUploadError: "Upload failed",
+  fileUploadTooLarge: "File too large (max 10MB)",
+  fileDelete: "Delete",
+  fileDeleteConfirm: "Delete this file?",
+  fileDeleteSuccess: "File deleted",
+  fileDeleteError: "Delete failed",
+  fileUploadOnlySkills: "Upload is only available in /opt/data/skills",
+
+  // Agent Resources Edit
+  resourceEdit: "Edit Resources",
+  resourceEditTitle: "Edit Agent Resources",
+  resourceCpuRequest: "CPU Request",
+  resourceCpuLimit: "CPU Limit",
+  resourceMemRequest: "Memory Request",
+  resourceMemLimit: "Memory Limit",
+  resourceSave: "Save & Restart",
+  resourceSaving: "Updating...",
+  resourceSuccess: "Resources updated. Pod is restarting.",
+  resourceError: "Failed to update resources",
+  resourceRestartNote: "Pod will restart to apply changes.",
 };

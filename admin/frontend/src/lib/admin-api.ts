@@ -529,6 +529,23 @@ export interface FileReadResponse {
   message?: string;
 }
 
+export interface FileUploadResponse {
+  path: string;
+  size: number;
+}
+
+export interface FileDeleteResponse {
+  path: string;
+  success: boolean;
+}
+
+export interface ResourceSpec {
+  cpu_request: string;
+  cpu_limit: string;
+  memory_request: string;
+  memory_limit: string;
+}
+
 // ---------------------------------------------------------------------------
 // API methods
 // ---------------------------------------------------------------------------
@@ -945,5 +962,30 @@ export const adminApi = {
 
   readFile(agentId: number, path: string): Promise<FileReadResponse> {
     return adminFetch(`/agents/${agentId}/files/read?path=${encodeURIComponent(path)}`);
+  },
+
+  // -- File Upload/Delete --
+  async uploadFile(agentId: number, file: File, path: string = "/opt/data/skills"): Promise<FileUploadResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("path", path);
+    return adminFetch(`/agents/${agentId}/files/upload`, {
+      method: "POST",
+      body: formData,
+    });
+  },
+
+  deleteFile(agentId: number, path: string): Promise<FileDeleteResponse> {
+    return adminFetch(`/agents/${agentId}/files/delete?path=${encodeURIComponent(path)}`, {
+      method: "DELETE",
+    });
+  },
+
+  // -- Agent Resources --
+  updateAgentResources(agentId: number, resources: ResourceSpec): Promise<ActionResponse> {
+    return adminFetch(`/agents/${agentId}/resources`, {
+      method: "PUT",
+      body: JSON.stringify(resources),
+    });
   },
 };
