@@ -78,7 +78,7 @@ class AgentDiscoveryService:
         from kubernetes_asyncio import client, config as k8s_config
 
         try:
-            await k8s_config.load_incluster_config()
+            k8s_config.load_incluster_config()
         except Exception as exc:
             logger.debug(
                 "In-cluster config failed (%s), trying kube_config", exc

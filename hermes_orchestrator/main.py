@@ -547,9 +547,8 @@ async def _run_discovery_loop():
                         recovery_timeout=config.circuit_recovery_timeout,
                     )
             for gone in existing - discovered:
-                await loop.run_in_executor(
-                    None, agent_registry.update_status, gone, "offline"
-                )
+                await loop.run_in_executor(None, agent_registry.deregister, gone)
+                circuits.pop(gone, None)
         except asyncio.CancelledError:
             raise
         except Exception as e:

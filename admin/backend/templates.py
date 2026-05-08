@@ -167,7 +167,10 @@ class TemplateGenerator:
                 "selector": {"matchLabels": {"app": name}},
                 "template": {
                     "metadata": {
-                        "labels": {"app": name},
+                        "labels": {
+                            "app": name,
+                            "app.kubernetes.io/component": "gateway",
+                        },
                         **({"annotations": pod_annotations} if pod_annotations else {}),
                     },
                     "spec": {
