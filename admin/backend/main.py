@@ -366,7 +366,6 @@ async def start_agent(request: Request, agent_id: int):
          dependencies=[auth, admin_only], tags=["agents"])
 async def get_agent_resources(agent_id: int, request: Request):
     """Get current CPU/memory resource limits for an agent's deployment."""
-    _admin_only(request)
     return await manager.get_resources(agent_id)
 
 
@@ -374,7 +373,6 @@ async def get_agent_resources(agent_id: int, request: Request):
          dependencies=[auth, admin_only], tags=["agents"])
 async def update_agent_resources(agent_id: int, body: ResourceSpec, request: Request):
     """Update CPU/memory resource limits for an agent's deployment. Triggers rolling restart."""
-    _admin_only(request)
     return await manager.update_resources(agent_id, body)
 
 

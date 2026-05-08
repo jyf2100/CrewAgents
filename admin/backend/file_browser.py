@@ -16,6 +16,7 @@ router = APIRouter()
 
 MAX_READ_SIZE = 1 * 1024 * 1024  # 1MB for text preview
 MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024  # 50MB hard limit
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB upload limit
 
 
 def _get_effective_agent_id(request: Request, agent_id: int) -> int:
@@ -101,7 +102,7 @@ async def read_file(request: Request, agent_id: int, path: str = Query(...)):
     return {"path": safe_path, "content": text, "size": len(content_bytes), "truncated": False}
 
 
-@router.post("/agents/{agent_id}/files/upload", dependencies=[auth])
+@router.post("/agents/{agent_id}/files/upload", dependencies=[auth], response_model=FileUploadResponse)
 async def upload_file(
     request: Request,
     agent_id: int,
@@ -120,8 +121,8 @@ async def upload_file(
     full_path = f"{safe_dir}/{filename}"
     _validate_upload_path(full_path)
 
-    content = await file.read()
-    if len(content) > 10 * 1024 * 1024:
+    content = await file.read(MAX_UPLOAD_SIZE + 1)
+    if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=400, detail="File too large (max 10MB)")
 
     pod_name = await _find_running_pod(effective_id)
@@ -131,7 +132,7 @@ async def upload_file(
     return {"path": full_path, "size": len(content)}
 
 
-@router.delete("/agents/{agent_id}/files/delete", dependencies=[auth])
+@router.delete("/agents/{agent_id}/files/delete", dependencies=[auth], response_model=FileDeleteResponse)
 async def delete_file(request: Request, agent_id: int, path: str = Query(...)):
     effective_id = _get_effective_agent_id(request, agent_id)
     check_file_rate_limit(effective_id)

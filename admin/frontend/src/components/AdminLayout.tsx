@@ -105,6 +105,42 @@ function IconLogout({ className }: { className?: string }) {
   );
 }
 
+function IconFolder({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+    </svg>
+  );
+}
+
+function IconChat({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+    </svg>
+  );
+}
+
 /* ── Navigation items ── */
 
 interface NavItem {
@@ -135,7 +171,11 @@ export function AdminLayout() {
   }
 
   const navItems: NavItem[] = isUser
-    ? [{ to: "/", label: t.navDashboard, icon: IconDashboard }]
+    ? [
+        { to: "/", label: t.navDashboard, icon: IconDashboard },
+        { to: "/files", label: t.fileBrowser, icon: IconFolder },
+        { to: "/chat", label: t.startChat, icon: IconChat },
+      ]
     : [
         { to: "/", label: t.navDashboard, icon: IconDashboard },
         { to: "/settings", label: t.navSettings, icon: IconSettings },
@@ -214,55 +254,22 @@ export function AdminLayout() {
           })}
         </nav>
 
-        {/* Web UI / Start Chat link */}
-        <div className="px-2 mt-4">
-          {isUser ? (
-            <Link
-              to="/chat"
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-accent-cyan hover:bg-accent-cyan/10 transition-colors duration-150 border border-accent-cyan/30"
-            >
-              <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-              </svg>
-              <span>{t.startChat}</span>
-            </Link>
-          ) : (
+        {/* Web UI link — admin only */}
+        {!isUser && (
+          <div className="px-2 mt-4">
             <a
               href={window.location.origin}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-text-secondary hover:text-text-primary hover:bg-surface/50 transition-colors duration-150"
             >
-              <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-              </svg>
+              <IconChat className="w-4 h-4 shrink-0" />
               <span>{t.navWebui}</span>
               <svg viewBox="0 0 20 20" className="w-3 h-3 ml-auto opacity-40" fill="currentColor" aria-hidden="true">
                 <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
                 <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
               </svg>
             </a>
-          )}
-        </div>
-
-        {/* File browser — user mode */}
-        {isUser && (
-          <div className="px-2 mt-2">
-            <Link
-              to="/files"
-              onClick={onNavigate}
-              className={[
-                "w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors duration-150",
-                isActive("/files")
-                  ? "text-text-primary font-medium bg-surface/50"
-                  : "text-text-secondary hover:text-text-primary hover:bg-surface/50",
-              ].join(" ")}
-            >
-              <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
-              </svg>
-              <span>{t.fileBrowser}</span>
-            </Link>
           </div>
         )}
 

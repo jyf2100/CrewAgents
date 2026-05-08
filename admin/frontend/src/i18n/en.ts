@@ -598,5 +598,6 @@ export const en: Translations = {
   resourceSaving: "Updating...",
   resourceSuccess: "Resources updated. Pod is restarting.",
   resourceError: "Failed to update resources",
+  resourceLoadError: "Failed to load current resource settings",
   resourceRestartNote: "Pod will restart to apply changes.",
 };

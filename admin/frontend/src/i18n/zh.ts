@@ -573,6 +573,7 @@ export interface Translations {
   resourceSaving: string;
   resourceSuccess: string;
   resourceError: string;
+  resourceLoadError: string;
   resourceRestartNote: string;
 }
 
@@ -1175,5 +1176,6 @@ export const zh: Translations = {
   resourceSaving: "更新中...",
   resourceSuccess: "资源配置已更新，Pod 正在重启。",
   resourceError: "更新资源配置失败",
+  resourceLoadError: "加载当前资源配置失败",
   resourceRestartNote: "Pod 将重启以应用新的资源配置。",
 };

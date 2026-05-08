@@ -480,21 +480,28 @@ done""",
         safe = shlex.quote(path)
         b64 = base64.b64encode(content).decode("ascii")
         cmd = ["sh", "-c", f"mkdir -p $(dirname {safe}) && printf '%s' '{b64}' | base64 -d > {safe}"]
-        await asyncio.wait_for(
-            asyncio.to_thread(
-                k8s_stream,
-                self.core_api.connect_get_namespaced_pod_exec,
-                name=pod_name,
-                namespace=self.namespace,
-                command=cmd,
-                stdin=False,
-                stdout=True,
-                stderr=True,
-                tty=False,
-                _preload_content=True,
-            ),
-            timeout=30,
-        )
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    k8s_stream,
+                    self.core_api.connect_get_namespaced_pod_exec,
+                    name=pod_name,
+                    namespace=self.namespace,
+                    command=cmd,
+                    stdin=False,
+                    stdout=True,
+                    stderr=True,
+                    tty=False,
+                    _preload_content=True,
+                ),
+                timeout=30,
+            )
+            if isinstance(result, str) and result.strip():
+                logger.warning("write_file_to_pod stderr for %s: %s", path, result.strip()[:200])
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"Timeout writing file to pod {pod_name}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to write file to pod {pod_name}: {e}")
 
     async def delete_file_from_pod(self, pod_name: str, path: str) -> None:
         """Delete a file in a pod via exec."""
@@ -502,18 +509,25 @@ done""",
         import shlex
         safe = shlex.quote(path)
         cmd = ["sh", "-c", f"rm -f {safe}"]
-        await asyncio.wait_for(
-            asyncio.to_thread(
-                k8s_stream,
-                self.core_api.connect_get_namespaced_pod_exec,
-                name=pod_name,
-                namespace=self.namespace,
-                command=cmd,
-                stdin=False,
-                stdout=True,
-                stderr=True,
-                tty=False,
-                _preload_content=True,
-            ),
-            timeout=10,
-        )
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    k8s_stream,
+                    self.core_api.connect_get_namespaced_pod_exec,
+                    name=pod_name,
+                    namespace=self.namespace,
+                    command=cmd,
+                    stdin=False,
+                    stdout=True,
+                    stderr=True,
+                    tty=False,
+                    _preload_content=True,
+                ),
+                timeout=10,
+            )
+            if isinstance(result, str) and result.strip():
+                logger.warning("delete_file_from_pod stderr for %s: %s", path, result.strip()[:200])
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"Timeout deleting file in pod {pod_name}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to delete file in pod {pod_name}: {e}")

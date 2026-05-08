@@ -343,7 +343,10 @@ function ResourceEditDialog({ agentId, onClose, onSaved }: {
       setMemReq(r.memory_request);
       setMemLimit(r.memory_limit);
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch(() => {
+      setLoading(false);
+      setError(t.resourceLoadError);
+    });
   }, [agentId]);
 
   async function handleSave() {

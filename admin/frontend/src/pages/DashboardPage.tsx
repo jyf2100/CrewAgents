@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AgentListItem, ClusterStatus, UserResponse } from "../lib/admin-api";
 import { adminApi, getAuthMode } from "../lib/admin-api";
@@ -85,11 +85,25 @@ export function DashboardPage() {
     }
   }, [t, isUser]);
 
+  const redirected = useRef(false);
+
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 10_000);
-    return () => clearInterval(interval);
-  }, [loadData]);
+    if (!isUser) {
+      const interval = setInterval(loadData, 10_000);
+      return () => clearInterval(interval);
+    }
+  }, [loadData, isUser]);
+
+  useEffect(() => {
+    // User mode: redirect directly to the assigned agent detail page
+    if (isUser && agents.length > 0 && !redirected.current) {
+      const agentId = parseInt(localStorage.getItem("admin_user_agent_id") || "0", 10);
+      const target = agentId > 0 ? agentId : agents[0].id;
+      redirected.current = true;
+      navigate(`/agents/${target}`, { replace: true });
+    }
+  }, [isUser, agents, navigate]);
 
   const runningCount = agents.filter((a) => a.status === "running").length;
   const stoppedCount = agents.filter(

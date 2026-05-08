@@ -270,14 +270,16 @@ export function FileBrowserPage() {
                         <span className="flex-1 truncate font-[family-name:var(--font-mono)] text-xs">{entry.name}</span>
                         {entry.type !== "d" && <span className="text-xs text-text-muted shrink-0">{formatSize(entry.size)}</span>}
                         {entry.type === "f" && canDelete(fullPath) && (
-                          <button
+                          <span
+                            role="button"
+                            tabIndex={0}
                             onClick={(e) => { e.stopPropagation(); handleDelete(fullPath); }}
-                            disabled={deletingPath === fullPath}
-                            className="ml-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50 shrink-0"
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); handleDelete(fullPath); } }}
+                            className="ml-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50 shrink-0 cursor-pointer"
                             title={t.fileDelete}
                           >
                             {deletingPath === fullPath ? "..." : "x"}
-                          </button>
+                          </span>
                         )}
                       </button>
                     </li>

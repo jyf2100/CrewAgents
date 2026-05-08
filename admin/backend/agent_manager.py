@@ -502,6 +502,11 @@ class AgentManager:
         patch = {
             "spec": {
                 "template": {
+                    "metadata": {
+                        "annotations": {
+                            "kubectl.kubernetes.io/restartedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        },
+                    },
                     "spec": {
                         "containers": [{
                             "name": "gateway",
@@ -521,20 +526,6 @@ class AgentManager:
             },
         }
         await self.k8s.patch_deployment(name, patch)
-
-        # Trigger rolling restart so new pods pick up the resource change
-        restart_patch = {
-            "spec": {
-                "template": {
-                    "metadata": {
-                        "annotations": {
-                            "kubectl.kubernetes.io/restartedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        },
-                    },
-                },
-            },
-        }
-        await self.k8s.patch_deployment(name, restart_patch)
 
         return ActionResponse(
             agent_number=agent_id,
