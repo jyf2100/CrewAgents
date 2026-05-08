@@ -362,6 +362,14 @@ async def start_agent(request: Request, agent_id: int):
     return await manager.scale_agent(_aid(request, agent_id), replicas=1, action="start")
 
 
+@app.get(f"{API_PREFIX}/agents/{{agent_id}}/resources", response_model=ResourceSpec,
+         dependencies=[auth, admin_only], tags=["agents"])
+async def get_agent_resources(agent_id: int, request: Request):
+    """Get current CPU/memory resource limits for an agent's deployment."""
+    _admin_only(request)
+    return await manager.get_resources(agent_id)
+
+
 @app.put(f"{API_PREFIX}/agents/{{agent_id}}/resources", response_model=ActionResponse,
          dependencies=[auth, admin_only], tags=["agents"])
 async def update_agent_resources(agent_id: int, body: ResourceSpec, request: Request):

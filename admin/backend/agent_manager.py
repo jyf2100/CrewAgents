@@ -475,6 +475,23 @@ class AgentManager:
         await self.k8s.patch_deployment(name, patch)
         return ActionResponse(agent_number=agent_id, action=action, success=True, message=f"Scaled to {replicas}")
 
+    # --- Get Agent Resources ---
+    async def get_resources(self, agent_id: int) -> ResourceSpec:
+        name = deployment_name(agent_id)
+        dep = await self.k8s.get_deployment(name)
+        if dep is None:
+            raise HTTPException(404, f"Agent {name} not found")
+        for c in dep.spec.template.spec.containers:
+            if c.name == "gateway":
+                r = c.resources
+                return ResourceSpec(
+                    cpu_request=r.requests.get("cpu", "250m") if r.requests else "250m",
+                    cpu_limit=r.limits.get("cpu", "1000m") if r.limits else "1000m",
+                    memory_request=r.requests.get("memory", "512Mi") if r.requests else "512Mi",
+                    memory_limit=r.limits.get("memory", "1Gi") if r.limits else "1Gi",
+                )
+        return ResourceSpec()
+
     # --- Update Agent Resources ---
     async def update_resources(self, agent_id: int, resources: ResourceSpec) -> ActionResponse:
         name = deployment_name(agent_id)
