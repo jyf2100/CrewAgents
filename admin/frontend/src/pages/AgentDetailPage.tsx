@@ -266,7 +266,7 @@ export function AgentDetailPage() {
 
       {/* Tab content */}
       {activeTab === "overview" && (
-        <OverviewTab agent={agent} onRegisterWeChat={() => setWeixinQROpen(true)} />
+        <OverviewTab agent={agent} onRegisterWeChat={() => setWeixinQROpen(true)} onRefresh={loadAgent} />
       )}
       {activeTab === "config" && (
         <ConfigTab agentId={agentId} />
@@ -319,15 +319,102 @@ export function AgentDetailPage() {
 }
 
 // ---------------------------------------------------------------------------
+// Resource Edit Dialog
+// ---------------------------------------------------------------------------
+
+function ResourceEditDialog({ agentId, onClose, onSaved }: {
+  agentId: number;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t } = useI18n();
+  const [cpuReq, setCpuReq] = useState("250m");
+  const [cpuLimit, setCpuLimit] = useState("1000m");
+  const [memReq, setMemReq] = useState("512Mi");
+  const [memLimit, setMemLimit] = useState("1Gi");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    adminApi.getAgentResources(agentId).then(r => {
+      setCpuReq(r.cpu_request);
+      setCpuLimit(r.cpu_limit);
+      setMemReq(r.memory_request);
+      setMemLimit(r.memory_limit);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [agentId]);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      await adminApi.updateAgentResources(agentId, {
+        cpu_request: cpuReq, cpu_limit: cpuLimit,
+        memory_request: memReq, memory_limit: memLimit,
+      });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(t.resourceError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><div className="text-text-secondary">...</div></div>;
+
+  const fields = [
+    { label: t.resourceCpuRequest, value: cpuReq, set: setCpuReq, placeholder: "250m" },
+    { label: t.resourceCpuLimit, value: cpuLimit, set: setCpuLimit, placeholder: "1000m" },
+    { label: t.resourceMemRequest, value: memReq, set: setMemReq, placeholder: "512Mi" },
+    { label: t.resourceMemLimit, value: memLimit, set: setMemLimit, placeholder: "1Gi" },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-lg p-6 w-96 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-text-primary">{t.resourceEditTitle}</h3>
+        <div className="space-y-3">
+          {fields.map((f) => (
+            <div key={f.label}>
+              <label className="text-xs text-text-secondary block mb-1">{f.label}</label>
+              <input
+                value={f.value}
+                onChange={(e) => f.set(e.target.value)}
+                placeholder={f.placeholder}
+                className="w-full bg-surface/50 border border-border-subtle rounded-md px-3 py-1.5 text-sm font-[family-name:var(--font-mono)] text-text-primary focus:outline-none focus:border-accent-cyan"
+              />
+            </div>
+          ))}
+        </div>
+        {error && <div className="p-2 rounded bg-red-500/10 text-red-400 text-xs">{error}</div>}
+        <p className="text-xs text-text-muted">{t.resourceRestartNote}</p>
+        <div className="flex gap-2 justify-end">
+          <button onClick={onClose} className="px-4 py-1.5 rounded-md text-sm text-text-secondary hover:text-text-primary border border-border-subtle transition-colors">
+            {t.cancel || "Cancel"}
+          </button>
+          <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 rounded-md text-sm bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30 hover:bg-accent-cyan/30 disabled:opacity-50 transition-colors">
+            {saving ? t.resourceSaving : t.resourceSave}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Overview Tab
 // ---------------------------------------------------------------------------
 
-function OverviewTab({ agent, onRegisterWeChat }: { agent: AgentDetail; onRegisterWeChat: () => void }) {
+function OverviewTab({ agent, onRegisterWeChat, onRefresh }: { agent: AgentDetail; onRegisterWeChat: () => void; onRefresh: () => void }) {
   const { t } = useI18n();
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
+  const [showResourceEdit, setShowResourceEdit] = useState(false);
 
   async function handleTestApi() {
     setTesting(true);
@@ -496,7 +583,12 @@ function OverviewTab({ agent, onRegisterWeChat }: { agent: AgentDetail; onRegist
 
       {/* Resource usage */}
       <div className="rounded-lg border border-border bg-surface p-4">
-        <h3 className="text-sm font-medium mb-3 text-text-primary">{t.resourceUsage}</h3>
+        <h3 className="text-sm font-medium mb-3 text-text-primary flex items-center justify-between">
+          <span>{t.resourceUsage}</span>
+          <button onClick={() => setShowResourceEdit(true)} className="text-xs text-accent-cyan hover:text-accent-cyan/80 transition-colors">
+            {t.resourceEdit}
+          </button>
+        </h3>
         {/* CPU */}
         <div className="mb-3">
           <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
@@ -610,6 +702,14 @@ function OverviewTab({ agent, onRegisterWeChat }: { agent: AgentDetail; onRegist
           </div>
         </div>
       </div>
+
+      {showResourceEdit && (
+        <ResourceEditDialog
+          agentId={agent.id}
+          onClose={() => setShowResourceEdit(false)}
+          onSaved={() => { onRefresh(); }}
+        />
+      )}
     </div>
   );
 }

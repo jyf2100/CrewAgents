@@ -803,7 +803,7 @@ export const adminApi = {
     return adminFetch(`/agents/${agentId}/events`);
   },
 
-  getAgentResources(agentId: number): Promise<Record<string, unknown>> {
+  getAgentResources(agentId: number): Promise<ResourceSpec> {
     return adminFetch(`/agents/${agentId}/resources`);
   },
 
