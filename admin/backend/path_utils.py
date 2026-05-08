@@ -7,7 +7,7 @@ from urllib.parse import unquote
 
 from fastapi import HTTPException
 
-ALLOWED_PREFIXES = ("/home", "/tmp", "/var/log")
+ALLOWED_PREFIXES = ("/home", "/tmp", "/var/log", "/opt/hermes", "/opt/data")
 
 
 def validate_path(path: str) -> str:
@@ -31,6 +31,24 @@ def sanitize_filename(path: str) -> str:
     """Extract and sanitize a filename for Content-Disposition headers."""
     filename = os.path.basename(path) or "file"
     return filename.replace('"', "'").replace("\r", "").replace("\n", "")
+
+
+UPLOAD_ALLOWED_PREFIX = "/opt/data/skills"
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+def validate_upload_path(path: str) -> str:
+    """Validate that a path is writable (only /opt/data/skills). Returns normalized path."""
+    path = unquote(path).strip()
+    if not path.startswith("/"):
+        path = "/" + path
+    normalized = os.path.normpath(path)
+    if normalized != UPLOAD_ALLOWED_PREFIX and not normalized.startswith(UPLOAD_ALLOWED_PREFIX + "/"):
+        raise HTTPException(status_code=403, detail="Upload only allowed under /opt/data/skills")
+    basename = os.path.basename(normalized)
+    if basename and not all(c.isalnum() or c in "._-+" for c in basename):
+        raise HTTPException(status_code=400, detail="Invalid filename: use only alphanumeric, dot, underscore, hyphen, plus")
+    return normalized
 
 
 # ---------------------------------------------------------------------------

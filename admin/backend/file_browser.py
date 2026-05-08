@@ -4,11 +4,11 @@ from __future__ import annotations
 import os
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File as FileParam, Form
 
 from auth import auth
-from models import FileListResponse, FileReadResponse
-from path_utils import validate_path as _validate_path, check_file_rate_limit
+from models import FileListResponse, FileReadResponse, FileUploadResponse, FileDeleteResponse
+from path_utils import validate_path as _validate_path, validate_upload_path as _validate_upload_path, check_file_rate_limit
 
 logger = logging.getLogger("hermes-admin.file_browser")
 
@@ -99,3 +99,50 @@ async def read_file(request: Request, agent_id: int, path: str = Query(...)):
         }
 
     return {"path": safe_path, "content": text, "size": len(content_bytes), "truncated": False}
+
+
+@router.post("/agents/{agent_id}/files/upload", dependencies=[auth])
+async def upload_file(
+    request: Request,
+    agent_id: int,
+    file: UploadFile = FileParam(...),
+    path: str = Form("/opt/data/skills"),
+):
+    effective_id = _get_effective_agent_id(request, agent_id)
+    check_file_rate_limit(effective_id)
+
+    safe_dir = _validate_upload_path(path)
+
+    filename = file.filename or "unnamed"
+    if not all(c.isalnum() or c in "._-+" for c in filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    full_path = f"{safe_dir}/{filename}"
+    _validate_upload_path(full_path)
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+
+    pod_name = await _find_running_pod(effective_id)
+    from main import k8s
+    await k8s.write_file_to_pod(pod_name, full_path, content)
+
+    return {"path": full_path, "size": len(content)}
+
+
+@router.delete("/agents/{agent_id}/files/delete", dependencies=[auth])
+async def delete_file(request: Request, agent_id: int, path: str = Query(...)):
+    effective_id = _get_effective_agent_id(request, agent_id)
+    check_file_rate_limit(effective_id)
+
+    safe_path = _validate_upload_path(path)
+    basename = os.path.basename(safe_path)
+    if not basename:
+        raise HTTPException(status_code=400, detail="Cannot delete a directory")
+
+    pod_name = await _find_running_pod(effective_id)
+    from main import k8s
+    await k8s.delete_file_from_pod(pod_name, safe_path)
+
+    return {"path": safe_path, "success": True}

@@ -546,6 +546,16 @@ class FileReadResponse(BaseModel):
     message: str | None = None
 
 
+class FileUploadResponse(BaseModel):
+    path: str
+    size: int
+
+
+class FileDeleteResponse(BaseModel):
+    path: str
+    success: bool
+
+
 # ── Skill Reporting ──
 
 class SkillReportItem(BaseModel):

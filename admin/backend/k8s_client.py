@@ -355,7 +355,7 @@ class K8sClient:
         safe = shlex.quote(path)
         cmd = ["sh", "-c", f"""realpath=$(/usr/bin/realpath {safe} 2>/dev/null || echo {safe})
 allowed=0
-for p in /home /tmp /var/log; do
+for p in /home /tmp /var/log /opt/hermes /opt/data; do
   case "$realpath" in
     $p|$p/*) allowed=1; break ;;
   esac
@@ -405,7 +405,7 @@ fi"""]
             "sh", "-c",
             f"""realpath=$(/usr/bin/realpath {safe} 2>/dev/null || echo {safe})
 allowed=0
-for p in /home /tmp /var/log; do
+for p in /home /tmp /var/log /opt/hermes /opt/data; do
   case "$realpath" in
     $p|$p/*) allowed=1; break ;;
   esac
@@ -418,12 +418,12 @@ for f in * .*; do
   [ "$f" = ".." ] && continue
   [ -e "$f" ] || [ -L "$f" ] || continue
   if [ -L "$f" ]; then
-    printf 'l\\x01%s\\x010\\n' "$f"
+    printf 'l\t%s\t0\n' "$f"
   elif [ -d "$f" ]; then
-    printf 'd\\x01%s\\x010\\n' "$f"
+    printf 'd\t%s\t0\n' "$f"
   else
     size=$(stat -c%s "$f" 2>/dev/null || echo 0)
-    printf 'f\\x01%s\\x01%s\\n' "$f" "$size"
+    printf 'f\t%s\t%s\n' "$f" "$size"
   fi
 done""",
         ]
@@ -451,9 +451,9 @@ done""",
             entries = []
             for line in result.strip().splitlines():
                 line = line.strip()
-                if not line or "\x01" not in line:
+                if not line or "\t" not in line:
                     continue
-                parts = line.split("\x01", 2)
+                parts = line.split("\t", 2)
                 if len(parts) != 3:
                     continue
                 entry_type, name, size_str = parts
@@ -471,3 +471,49 @@ done""",
         except Exception as e:
             logger.warning("list_dir failed for pod %s path %s: %s", pod_name, path, e)
             return []
+
+    async def write_file_to_pod(self, pod_name: str, path: str, content: bytes) -> None:
+        """Write file content to a pod via exec + base64 decode. Creates parent dirs."""
+        from kubernetes.stream import stream as k8s_stream
+        import base64
+        import shlex
+        safe = shlex.quote(path)
+        b64 = base64.b64encode(content).decode("ascii")
+        cmd = ["sh", "-c", f"mkdir -p $(dirname {safe}) && printf '%s' '{b64}' | base64 -d > {safe}"]
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                k8s_stream,
+                self.core_api.connect_get_namespaced_pod_exec,
+                name=pod_name,
+                namespace=self.namespace,
+                command=cmd,
+                stdin=False,
+                stdout=True,
+                stderr=True,
+                tty=False,
+                _preload_content=True,
+            ),
+            timeout=30,
+        )
+
+    async def delete_file_from_pod(self, pod_name: str, path: str) -> None:
+        """Delete a file in a pod via exec."""
+        from kubernetes.stream import stream as k8s_stream
+        import shlex
+        safe = shlex.quote(path)
+        cmd = ["sh", "-c", f"rm -f {safe}"]
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                k8s_stream,
+                self.core_api.connect_get_namespaced_pod_exec,
+                name=pod_name,
+                namespace=self.namespace,
+                command=cmd,
+                stdin=False,
+                stdout=True,
+                stderr=True,
+                tty=False,
+                _preload_content=True,
+            ),
+            timeout=10,
+        )
