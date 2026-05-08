@@ -37,6 +37,7 @@ from models import (
     AgentMetadataUpdate,
     AgentMetadataResponse, AgentMetadataInternalResponse,
     SkillReportItem, SkillReportRequest, SkillReportResponse,
+    ResourceSpec,
 )
 from k8s_client import K8sClient
 from agent_manager import AgentManager
@@ -359,6 +360,14 @@ async def stop_agent(request: Request, agent_id: int):
 async def start_agent(request: Request, agent_id: int):
     """Start an agent by scaling to 1 replica."""
     return await manager.scale_agent(_aid(request, agent_id), replicas=1, action="start")
+
+
+@app.put(f"{API_PREFIX}/agents/{{agent_id}}/resources", response_model=ActionResponse,
+         dependencies=[auth, admin_only], tags=["agents"])
+async def update_agent_resources(agent_id: int, body: ResourceSpec, request: Request):
+    """Update CPU/memory resource limits for an agent's deployment. Triggers rolling restart."""
+    _admin_only(request)
+    return await manager.update_resources(agent_id, body)
 
 
 # ===================================================================

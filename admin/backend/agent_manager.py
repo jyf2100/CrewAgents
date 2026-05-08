@@ -20,7 +20,8 @@ from models import (
     ActionResponse, AgentDetailResponse, AgentListResponse, AgentStatus, AgentSummary,
     BackupRequest, BackupResponse, ClusterStatusResponse, ContainerStatus, CreateAgentRequest,
     CreateAgentResponse, CreateStepStatus, EnvVariable, EventListResponse,
-    HealthResponse, K8sEvent, MessageResponse, NodeInfo, PodInfo, ResourceUsage,
+    HealthResponse, K8sEvent, MessageResponse, NodeInfo, PodInfo, ResourceSpec,
+    ResourceUsage,
     TestLLMRequest, TestLLMResponse, DefaultResourceLimits, EventType,
     TestAgentApiResponse,
 )
@@ -473,6 +474,57 @@ class AgentManager:
         patch = {"spec": {"replicas": replicas}}
         await self.k8s.patch_deployment(name, patch)
         return ActionResponse(agent_number=agent_id, action=action, success=True, message=f"Scaled to {replicas}")
+
+    # --- Update Agent Resources ---
+    async def update_resources(self, agent_id: int, resources: ResourceSpec) -> ActionResponse:
+        name = deployment_name(agent_id)
+        dep = await self.k8s.get_deployment(name)
+        if dep is None:
+            raise HTTPException(404, f"Agent {name} not found")
+
+        patch = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [{
+                            "name": "gateway",
+                            "resources": {
+                                "requests": {
+                                    "cpu": resources.cpu_request,
+                                    "memory": resources.memory_request,
+                                },
+                                "limits": {
+                                    "cpu": resources.cpu_limit,
+                                    "memory": resources.memory_limit,
+                                },
+                            },
+                        }],
+                    },
+                },
+            },
+        }
+        await self.k8s.patch_deployment(name, patch)
+
+        # Trigger rolling restart so new pods pick up the resource change
+        restart_patch = {
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "kubectl.kubernetes.io/restartedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        },
+                    },
+                },
+            },
+        }
+        await self.k8s.patch_deployment(name, restart_patch)
+
+        return ActionResponse(
+            agent_number=agent_id,
+            action="update_resources",
+            success=True,
+            message=f"Resources updated: CPU {resources.cpu_request}-{resources.cpu_limit}, Memory {resources.memory_request}-{resources.memory_limit}. Restarting pod.",
+        )
 
     # --- Health Check ---
     async def check_health(self, agent_id: int) -> HealthResponse:
