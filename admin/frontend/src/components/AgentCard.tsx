@@ -41,7 +41,7 @@ interface AgentCardProps {
 export function AgentCard({ agent, onActionDone }: AgentCardProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const isUser = getAuthMode() === "user";
+  const isUser = getAuthMode() !== "admin";
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);

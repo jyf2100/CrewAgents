@@ -495,6 +495,10 @@ export interface AgentMetadata {
   skills?: string[]; // New — routing tags aggregated from AgentSkill table
   display_name?: string;
   description?: string;
+  cpu_request?: string;
+  cpu_limit?: string;
+  memory_request?: string;
+  memory_limit?: string;
   updated_at?: number;
 }
 

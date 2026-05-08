@@ -83,6 +83,7 @@ export const en: Translations = {
   containerReady: "Ready",
   containerRestarts: "Restarts",
   resourceUsage: "Resource Usage",
+  viewConfig: "View Config",
   cpuUsage: "CPU Usage",
   memoryUsage: "Memory Usage",
   cpuRequest: "CPU Request",
@@ -589,6 +590,7 @@ export const en: Translations = {
 
   // Agent Resources Edit
   resourceEdit: "Edit Resources",
+  resourceViewTitle: "Resource Configuration",
   resourceEditTitle: "Edit Agent Resources",
   resourceCpuRequest: "CPU Request",
   resourceCpuLimit: "CPU Limit",

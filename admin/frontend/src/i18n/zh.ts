@@ -74,6 +74,7 @@ export interface Translations {
   containerReady: string;
   containerRestarts: string;
   resourceUsage: string;
+  viewConfig: string;
   cpuUsage: string;
   memoryUsage: string;
   cpuRequest: string;
@@ -564,6 +565,7 @@ export interface Translations {
 
   // Agent Resources Edit
   resourceEdit: string;
+  resourceViewTitle: string;
   resourceEditTitle: string;
   resourceCpuRequest: string;
   resourceCpuLimit: string;
@@ -660,6 +662,7 @@ export const zh: Translations = {
   containerReady: "就绪",
   containerRestarts: "重启次数",
   resourceUsage: "资源使用",
+  viewConfig: "查看配置",
   cpuUsage: "CPU 使用",
   memoryUsage: "内存使用",
   cpuRequest: "CPU 请求",
@@ -1167,6 +1170,7 @@ export const zh: Translations = {
 
   // Agent Resources Edit
   resourceEdit: "编辑资源",
+  resourceViewTitle: "资源配置",
   resourceEditTitle: "编辑 Agent 资源配置",
   resourceCpuRequest: "CPU 请求",
   resourceCpuLimit: "CPU 上限",

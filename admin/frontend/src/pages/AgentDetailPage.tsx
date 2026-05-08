@@ -73,7 +73,7 @@ export function AgentDetailPage() {
 
   const agentId = parseAgentId(idParam ?? "");
   const activeTab = (searchParams.get("tab") as TabId) || "overview";
-  const isUser = getAuthMode() === "user";
+  const isUser = getAuthMode() !== "admin";
 
   function setTab(tab: TabId) {
     setSearchParams({ tab }, { replace: true });
@@ -266,7 +266,7 @@ export function AgentDetailPage() {
 
       {/* Tab content */}
       {activeTab === "overview" && (
-        <OverviewTab agent={agent} onRegisterWeChat={() => setWeixinQROpen(true)} onRefresh={loadAgent} />
+        <OverviewTab agent={agent} onRegisterWeChat={() => setWeixinQROpen(true)} onRefresh={loadAgent} isUser={isUser} />
       )}
       {activeTab === "config" && (
         <ConfigTab agentId={agentId} />
@@ -376,9 +376,17 @@ function ResourceEditDialog({ agentId, onClose, onSaved }: {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="resource-edit-title"
+      tabIndex={-1}
+      onClick={onClose}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+    >
       <div className="bg-surface border border-border rounded-lg p-6 w-96 space-y-4" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-text-primary">{t.resourceEditTitle}</h3>
+        <h3 id="resource-edit-title" className="text-lg font-bold text-text-primary">{t.resourceEditTitle}</h3>
         <div className="space-y-3">
           {fields.map((f) => (
             <div key={f.label}>
@@ -407,17 +415,84 @@ function ResourceEditDialog({ agentId, onClose, onSaved }: {
   );
 }
 
+function ResourceViewDialog({ agentId, onClose }: {
+  agentId: number;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const [spec, setSpec] = useState<{ cpu_request: string; cpu_limit: string; memory_request: string; memory_limit: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    adminApi.getAgentResources(agentId).then(r => {
+      setSpec({
+        cpu_request: r.cpu_request,
+        cpu_limit: r.cpu_limit,
+        memory_request: r.memory_request,
+        memory_limit: r.memory_limit,
+      });
+      setLoading(false);
+    }).catch((e: unknown) => {
+      setError(e instanceof Error ? e.message : String(e));
+      setLoading(false);
+    });
+  }, [agentId]);
+
+  if (loading) return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><div className="text-text-secondary">...</div></div>;
+
+  const rows = spec ? [
+    { label: t.resourceCpuRequest, value: spec.cpu_request },
+    { label: t.resourceCpuLimit, value: spec.cpu_limit },
+    { label: t.resourceMemRequest, value: spec.memory_request },
+    { label: t.resourceMemLimit, value: spec.memory_limit },
+  ] : [];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="resource-view-title"
+      tabIndex={-1}
+      onClick={onClose}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+    >
+      <div className="bg-surface border border-border rounded-lg p-6 w-96 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <h3 id="resource-view-title" className="text-lg font-bold text-text-primary">{t.resourceViewTitle}</h3>
+        {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+        <div className="space-y-3">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-center justify-between">
+              <span className="text-xs text-text-secondary">{r.label}</span>
+              <span className="text-sm font-[family-name:var(--font-mono)] text-text-primary">{r.value}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end">
+          <button onClick={onClose} className="px-4 py-1.5 rounded-md text-sm text-text-secondary hover:text-text-primary border border-border-subtle transition-colors">
+            {t.close || "Close"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Overview Tab
 // ---------------------------------------------------------------------------
 
-function OverviewTab({ agent, onRegisterWeChat, onRefresh }: { agent: AgentDetail; onRegisterWeChat: () => void; onRefresh: () => void }) {
+function OverviewTab({ agent, onRegisterWeChat, onRefresh, isUser }: { agent: AgentDetail; onRegisterWeChat: () => void; onRefresh: () => void; isUser: boolean }) {
   const { t } = useI18n();
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
   const [showResourceEdit, setShowResourceEdit] = useState(false);
+  const [showResourceView, setShowResourceView] = useState(false);
 
   async function handleTestApi() {
     setTesting(true);
@@ -588,9 +663,15 @@ function OverviewTab({ agent, onRegisterWeChat, onRefresh }: { agent: AgentDetai
       <div className="rounded-lg border border-border bg-surface p-4">
         <h3 className="text-sm font-medium mb-3 text-text-primary flex items-center justify-between">
           <span>{t.resourceUsage}</span>
-          <button onClick={() => setShowResourceEdit(true)} className="text-xs text-accent-cyan hover:text-accent-cyan/80 transition-colors">
-            {t.resourceEdit}
-          </button>
+          {isUser ? (
+            <button onClick={() => setShowResourceView(true)} className="text-xs text-accent-cyan hover:text-accent-cyan/80 transition-colors">
+              {t.viewConfig}
+            </button>
+          ) : (
+            <button onClick={() => setShowResourceEdit(true)} className="text-xs text-accent-cyan hover:text-accent-cyan/80 transition-colors">
+              {t.resourceEdit}
+            </button>
+          )}
         </h3>
         {/* CPU */}
         <div className="mb-3">
@@ -713,6 +794,12 @@ function OverviewTab({ agent, onRegisterWeChat, onRefresh }: { agent: AgentDetai
           onSaved={() => { onRefresh(); }}
         />
       )}
+      {showResourceView && (
+        <ResourceViewDialog
+          agentId={agent.id}
+          onClose={() => setShowResourceView(false)}
+        />
+      )}
     </div>
   );
 }
@@ -735,7 +822,7 @@ const MAX_TAGS = 20;
 
 function MetadataCard({ agentId }: { agentId: number }) {
   const { t } = useI18n();
-  const isUser = getAuthMode() === "user";
+  const isUser = getAuthMode() !== "admin";
 
   const [meta, setMeta] = useState<AgentMetadata | null>(null);
   const [loading, setLoading] = useState(true);

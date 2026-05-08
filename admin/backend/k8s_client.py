@@ -25,6 +25,10 @@ class K8sClient:
         self.apps_api = AppsV1Api()
         self.core_api = CoreV1Api()
         self.networking_api = NetworkingV1Api()
+        # Separate ApiClient for stream/exec operations to avoid the global
+        # ApiClient.request being patched by k8s_stream() during concurrent
+        # regular API calls (race condition causes WebSocket handshake errors).
+        self._stream_api = CoreV1Api(api_client=kubernetes.client.ApiClient())
         self._ingress_lock = asyncio.Lock()
 
     @staticmethod
@@ -297,6 +301,29 @@ class K8sClient:
             return []
 
     # Exec into pod
+    async def run_command(self, pod_name: str, command: list[str]) -> tuple[str, str]:
+        """Run a one-shot command in a pod and return (stdout, stderr)."""
+        from kubernetes.stream import stream as k8s_stream
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    k8s_stream,
+                    self._stream_api.connect_get_namespaced_pod_exec,
+                    name=pod_name,
+                    namespace=self.namespace,
+                    command=command,
+                    stdin=False,
+                    stdout=True,
+                    stderr=True,
+                    tty=False,
+                    _preload_content=True,
+                ),
+                timeout=15,
+            )
+            return result, ""
+        except Exception as e:
+            return "", str(e)
+
     async def exec_pod(self, pod_name: str, command: list[str] | None = None):
         """Create an interactive exec stream into a pod. Returns a kubernetes WSClient."""
         from kubernetes.stream import stream as k8s_stream
@@ -305,7 +332,7 @@ class K8sClient:
         return await asyncio.wait_for(
             asyncio.to_thread(
                 k8s_stream,
-                self.core_api.connect_get_namespaced_pod_exec,
+                self._stream_api.connect_get_namespaced_pod_exec,
                 name=pod_name,
                 namespace=self.namespace,
                 command=command,
@@ -328,7 +355,7 @@ class K8sClient:
             result = await asyncio.wait_for(
                 asyncio.to_thread(
                     k8s_stream,
-                    self.core_api.connect_get_namespaced_pod_exec,
+                    self._stream_api.connect_get_namespaced_pod_exec,
                     name=pod_name,
                     namespace=self.namespace,
                     command=cmd,
@@ -371,7 +398,7 @@ fi"""]
             result = await asyncio.wait_for(
                 asyncio.to_thread(
                     k8s_stream,
-                    self.core_api.connect_get_namespaced_pod_exec,
+                    self._stream_api.connect_get_namespaced_pod_exec,
                     name=pod_name,
                     namespace=self.namespace,
                     command=cmd,
@@ -431,7 +458,7 @@ done""",
             result = await asyncio.wait_for(
                 asyncio.to_thread(
                     k8s_stream,
-                    self.core_api.connect_get_namespaced_pod_exec,
+                    self._stream_api.connect_get_namespaced_pod_exec,
                     name=pod_name,
                     namespace=self.namespace,
                     command=cmd,
@@ -484,7 +511,7 @@ done""",
             result = await asyncio.wait_for(
                 asyncio.to_thread(
                     k8s_stream,
-                    self.core_api.connect_get_namespaced_pod_exec,
+                    self._stream_api.connect_get_namespaced_pod_exec,
                     name=pod_name,
                     namespace=self.namespace,
                     command=cmd,
@@ -513,7 +540,7 @@ done""",
             result = await asyncio.wait_for(
                 asyncio.to_thread(
                     k8s_stream,
-                    self.core_api.connect_get_namespaced_pod_exec,
+                    self._stream_api.connect_get_namespaced_pod_exec,
                     name=pod_name,
                     namespace=self.namespace,
                     command=cmd,

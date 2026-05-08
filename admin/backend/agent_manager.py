@@ -31,6 +31,7 @@ from constants import SECRET_PATTERNS, PROVIDER_URL_MAP, format_age, determine_a
 from templates import deployment_name
 from database import AsyncSessionLocal
 from db_models import AgentMetadata, AgentSkill, ReportIdRecord
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 logger = logging.getLogger(__name__)
 
@@ -380,15 +381,31 @@ class AgentManager:
         created = True  # Resources created successfully
 
         # Write metadata to PostgreSQL (best-effort, non-blocking)
-        # Use merge() so that re-creating an agent whose row already exists
-        # does not raise a primary-key violation.
+        # Use pg_insert ... on conflict do update so that re-creating an agent
+        # whose row already exists does not raise a primary-key violation,
+        # and does not overwrite existing tags/role/domain/skills/description.
         try:
             async with AsyncSessionLocal() as db_session:
-                metadata = AgentMetadata(
-                    agent_number=agent_num,
-                    display_name=req.display_name or "",
+                meta_values = {
+                    "agent_number": agent_num,
+                    "display_name": req.display_name or "",
+                    "cpu_request": req.resources.cpu_request,
+                    "cpu_limit": req.resources.cpu_limit,
+                    "memory_request": req.resources.memory_request,
+                    "memory_limit": req.resources.memory_limit,
+                }
+                stmt = pg_insert(AgentMetadata).values(**meta_values)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["agent_number"],
+                    set_={
+                        "display_name": stmt.excluded.display_name,
+                        "cpu_request": stmt.excluded.cpu_request,
+                        "cpu_limit": stmt.excluded.cpu_limit,
+                        "memory_request": stmt.excluded.memory_request,
+                        "memory_limit": stmt.excluded.memory_limit,
+                    },
                 )
-                await db_session.merge(metadata)
+                await db_session.execute(stmt)
                 await db_session.commit()
         except Exception as e:
             logger.warning("Failed to write AgentMetadata for agent %s: %s", agent_num, e)
@@ -526,6 +543,21 @@ class AgentManager:
             },
         }
         await self.k8s.patch_deployment(name, patch)
+
+        # Persist resource specs to database
+        try:
+            async with AsyncSessionLocal() as db_session:
+                row = await db_session.get(AgentMetadata, agent_id)
+                if row is None:
+                    row = AgentMetadata(agent_number=agent_id)
+                    db_session.add(row)
+                row.cpu_request = resources.cpu_request
+                row.cpu_limit = resources.cpu_limit
+                row.memory_request = resources.memory_request
+                row.memory_limit = resources.memory_limit
+                await db_session.commit()
+        except Exception as e:
+            logger.warning("Failed to persist resource specs for agent %s: %s", agent_id, e)
 
         return ActionResponse(
             agent_number=agent_id,
