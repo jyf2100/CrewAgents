@@ -26,7 +26,7 @@ export function FileBrowserPage() {
   const { t } = useI18n();
   const [agentId] = useState(() => parseInt(localStorage.getItem("admin_user_agent_id") || "0", 10));
 
-  const [currentPath, setCurrentPath] = useState("/home/user/hermes");
+  const [currentPath, setCurrentPath] = useState("/opt/data");
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +40,11 @@ export function FileBrowserPage() {
 
   const currentPathRef = useRef(currentPath);
   currentPathRef.current = currentPath;
+
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [deletingPath, setDeletingPath] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [pathInput, setPathInput] = useState(currentPath);
 
@@ -134,6 +139,43 @@ export function FileBrowserPage() {
       });
   }
 
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError(t.fileUploadTooLarge);
+      return;
+    }
+    setUploading(true);
+    setUploadError(null);
+    try {
+      await adminApi.uploadFile(agentId, file, currentPath.startsWith("/opt/data/skills") ? currentPath : "/opt/data/skills");
+      loadDir(currentPath);
+    } catch (e) {
+      setUploadError(e instanceof AdminApiError ? e.detail : t.fileUploadError);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleDelete(filePath: string) {
+    if (!confirm(t.fileDeleteConfirm)) return;
+    setDeletingPath(filePath);
+    try {
+      await adminApi.deleteFile(agentId, filePath);
+      if (selectedFile === filePath) { setSelectedFile(null); setFileContent(null); setFileMeta(null); }
+      loadDir(currentPath);
+    } catch (e) {
+      setError(e instanceof AdminApiError ? e.detail : t.fileDeleteError);
+    } finally {
+      setDeletingPath(null);
+    }
+  }
+
+  const canUpload = currentPath === "/opt/data/skills" || currentPath.startsWith("/opt/data/skills/");
+  const canDelete = (fp: string) => fp.startsWith("/opt/data/skills/");
+
   const pathParts = currentPath.split("/").filter(Boolean);
 
   if (!agentId) {
@@ -179,11 +221,24 @@ export function FileBrowserPage() {
               {t.fileDirUp}
             </button>
           )}
+          {canUpload && (
+            <>
+              <input ref={fileInputRef} type="file" onChange={handleUpload} className="hidden" />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="px-4 py-1.5 rounded-md text-sm bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30 hover:bg-accent-cyan/30 transition-colors disabled:opacity-50"
+              >
+                {uploading ? t.fileUpload + "..." : t.fileUpload}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {error && <div className="p-3 rounded-md bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>}
       {downloadError && <div className="p-3 rounded-md bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{downloadError}</div>}
+      {uploadError && <div className="p-3 rounded-md bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{uploadError}</div>}
 
       <div className="flex gap-4 min-h-[500px]">
         <div className="w-1/3 min-w-[280px] border border-border-subtle rounded-lg bg-surface/30 overflow-hidden flex flex-col">
@@ -214,6 +269,16 @@ export function FileBrowserPage() {
                         <span className="text-base leading-none">{entryIcon(entry.type, entry.name)}</span>
                         <span className="flex-1 truncate font-[family-name:var(--font-mono)] text-xs">{entry.name}</span>
                         {entry.type !== "d" && <span className="text-xs text-text-muted shrink-0">{formatSize(entry.size)}</span>}
+                        {entry.type === "f" && canDelete(fullPath) && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDelete(fullPath); }}
+                            disabled={deletingPath === fullPath}
+                            className="ml-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50 shrink-0"
+                            title={t.fileDelete}
+                          >
+                            {deletingPath === fullPath ? "..." : "x"}
+                          </button>
+                        )}
                       </button>
                     </li>
                   );
