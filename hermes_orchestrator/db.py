@@ -1,6 +1,7 @@
 """Lightweight asyncpg pool for orchestrator metadata queries."""
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -19,6 +20,16 @@ def _resolve_domain(domain: str | None, role: str | None) -> str:
     return ROLE_TO_DOMAIN.get(role or "generalist", "generalist")
 
 
+async def _init_jsonb_codec(conn: asyncpg.Connection) -> None:
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=lambda v: json.dumps(v),
+        decoder=lambda v: json.loads(v),
+        schema="pg_catalog",
+        format="text",
+    )
+
+
 async def init_pool(dsn: str) -> asyncpg.Pool | None:
     global _pool
     if not dsn:
@@ -30,6 +41,7 @@ async def init_pool(dsn: str) -> asyncpg.Pool | None:
             max_size=3,
             command_timeout=5,
             server_settings={"default_transaction_read_only": "on"},
+            init=_init_jsonb_codec,
         )
         logger.info("asyncpg pool created (max_size=3, read_only=true)")
         return _pool
