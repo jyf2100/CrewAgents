@@ -179,7 +179,7 @@ async def _run_terminal_session(websocket: WebSocket, agent_id: int):
 
     # Create K8s exec stream
     try:
-        k8s_ws = await k8s.exec_pod(pod_name)
+        k8s_ws = await k8s.exec_pod(pod_name, container="gateway")
     except Exception as e:
         logger.error("Failed to exec into pod %s: %s", pod_name, e)
         await websocket.send_json({"type": "error", "message": "Failed to open terminal session"})

@@ -4,6 +4,8 @@
   /* ── Surfaces ── */
   --color-background: #0d0221;
   --color-surface: #1a0a3e;
+  --color-surface-secondary: oklch(0.16 0.02 270);
+  --color-surface-tertiary: oklch(0.13 0.02 270);
   --color-surface-elevated: #2d1b69;
   --color-sidebar-bg: #120838;
   --color-terminal: #080815;

@@ -63,6 +63,7 @@ export interface Translations {
   logs: string;
   events: string;
   health: string;
+  kanban: string;
   // Overview Tab
   podInfo: string;
   podName: string;
@@ -577,6 +578,68 @@ export interface Translations {
   resourceError: string;
   resourceLoadError: string;
   resourceRestartNote: string;
+
+  // Kanban
+  kanbanBoard: string;
+  kanbanTasks: string;
+  kanbanTriage: string;
+  kanbanTodo: string;
+  kanbanReady: string;
+  kanbanRunning: string;
+  kanbanDone: string;
+  kanbanBlocked: string;
+  kanbanDispatch: string;
+  kanbanDispatching: string;
+  kanbanNoTasksToDispatch: string;
+  kanbanSpawned: string;
+  kanbanCrashed: string;
+  kanbanUnassigned: string;
+  kanbanAutoBlocked: string;
+  kanbanLoadingBoard: string;
+  kanbanNoTasksYet: string;
+  kanbanCreateFirst: string;
+  kanbanCreateTask: string;
+  kanbanNewTask: string;
+  kanbanDropTasks: string;
+  kanbanTaskDetail: string;
+  kanbanTitle: string;
+  kanbanDescription: string;
+  kanbanStatus: string;
+  kanbanPriority: string;
+  kanbanPriorityLow: string;
+  kanbanPriorityNormal: string;
+  kanbanPriorityHigh: string;
+  kanbanPriorityCritical: string;
+  kanbanAssignee: string;
+  kanbanAssigneeHint: string;
+  kanbanResult: string;
+  kanbanComments: string;
+  kanbanNoComments: string;
+  kanbanAddComment: string;
+  kanbanCommentSend: string;
+  kanbanSave: string;
+  kanbanSaving: string;
+  kanbanCancel: string;
+  kanbanUnblockRetry: string;
+  kanbanUnblocking: string;
+  kanbanTaskUpdated: string;
+  kanbanTaskCreated: string;
+  kanbanTaskUnblocked: string;
+  kanbanMoveFailed: string;
+  kanbanCreateFailed: string;
+  kanbanUpdateFailed: string;
+  kanbanCommentFailed: string;
+  kanbanUnblockFailed: string;
+  kanbanLabels: string;
+  kanbanLabelsPlaceholder: string;
+  kanbanLabelsHint: string;
+  kanbanTitlePlaceholder: string;
+  kanbanDescPlaceholder: string;
+  kanbanCreating: string;
+  kanbanId: string;
+  kanbanCreated: string;
+  kanbanCompleted: string;
+  kanbanBlockedReason: string;
 }
 
 export const zh: Translations = {
@@ -650,6 +713,7 @@ export const zh: Translations = {
   logs: "日志",
   events: "K8s Events",
   health: "健康",
+  kanban: "看板",
 
   // Overview Tab
   podInfo: "Pod 信息",
@@ -1182,4 +1246,66 @@ export const zh: Translations = {
   resourceError: "更新资源配置失败",
   resourceLoadError: "加载当前资源配置失败",
   resourceRestartNote: "Pod 将重启以应用新的资源配置。",
+
+  // Kanban
+  kanbanBoard: "看板",
+  kanbanTasks: "个任务",
+  kanbanTriage: "待定",
+  kanbanTodo: "待办",
+  kanbanReady: "就绪",
+  kanbanRunning: "执行中",
+  kanbanDone: "已完成",
+  kanbanBlocked: "已阻塞",
+  kanbanDispatch: "派发",
+  kanbanDispatching: "派发中...",
+  kanbanNoTasksToDispatch: "无可派发任务",
+  kanbanSpawned: "已启动",
+  kanbanCrashed: "已崩溃",
+  kanbanUnassigned: "未分配",
+  kanbanAutoBlocked: "自动阻塞",
+  kanbanLoadingBoard: "加载看板...",
+  kanbanNoTasksYet: "暂无任务。创建第一个任务开始使用。",
+  kanbanCreateFirst: "创建任务",
+  kanbanCreateTask: "创建任务",
+  kanbanNewTask: "+ 新任务",
+  kanbanDropTasks: "拖拽任务到此处",
+  kanbanTaskDetail: "任务详情",
+  kanbanTitle: "标题",
+  kanbanDescription: "描述",
+  kanbanStatus: "状态",
+  kanbanPriority: "优先级",
+  kanbanPriorityLow: "1 - 低",
+  kanbanPriorityNormal: "2 - 普通",
+  kanbanPriorityHigh: "3 - 高",
+  kanbanPriorityCritical: "4 - 紧急",
+  kanbanAssignee: "执行者",
+  kanbanAssigneeHint: "Hermes 配置文件名，用于 Worker 派发",
+  kanbanResult: "执行结果",
+  kanbanComments: "评论",
+  kanbanNoComments: "暂无评论",
+  kanbanAddComment: "添加评论...",
+  kanbanCommentSend: "发送",
+  kanbanSave: "保存",
+  kanbanSaving: "保存中...",
+  kanbanCancel: "取消",
+  kanbanUnblockRetry: "解除阻塞并重试",
+  kanbanUnblocking: "解除中...",
+  kanbanTaskUpdated: "任务已更新",
+  kanbanTaskCreated: "任务已创建",
+  kanbanTaskUnblocked: "任务已解除阻塞",
+  kanbanMoveFailed: "移动任务失败",
+  kanbanCreateFailed: "创建任务失败",
+  kanbanUpdateFailed: "更新任务失败",
+  kanbanCommentFailed: "添加评论失败",
+  kanbanUnblockFailed: "解除阻塞失败",
+  kanbanLabels: "标签",
+  kanbanLabelsPlaceholder: "逗号分隔标签",
+  kanbanLabelsHint: "多个标签用逗号分隔",
+  kanbanTitlePlaceholder: "任务标题",
+  kanbanDescPlaceholder: "可选描述",
+  kanbanCreating: "创建中...",
+  kanbanId: "ID",
+  kanbanCreated: "创建时间",
+  kanbanCompleted: "完成时间",
+  kanbanBlockedReason: "阻塞原因",
 };

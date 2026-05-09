@@ -28,6 +28,7 @@ import { showToast } from "../lib/toast";
 import { WeChatCard } from "../components/WeChatCard";
 import { WeChatQRModal } from "../components/WeChatQRModal";
 import { TerminalTab } from "../components/TerminalTab";
+import { KanbanTab } from "../components/kanban/KanbanTab";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -58,7 +59,7 @@ function logLineColor(line: string): string {
 // Tab definitions
 // ---------------------------------------------------------------------------
 
-const TAB_IDS = ["overview", "config", "logs", "events", "health", "terminal"] as const;
+const TAB_IDS = ["overview", "config", "logs", "events", "health", "terminal", "kanban"] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 // ---------------------------------------------------------------------------
@@ -283,6 +284,10 @@ export function AgentDetailPage() {
 
       {activeTab === "terminal" && (
         <TerminalTab agentId={agentId} />
+      )}
+
+      {activeTab === "kanban" && (
+        <KanbanTab agentId={agentId} />
       )}
 
       {/* WeChat QR Modal */}

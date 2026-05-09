@@ -555,6 +555,8 @@ export interface ResourceSpec {
 // API methods
 // ---------------------------------------------------------------------------
 
+import type { KanbanTask, KanbanComment, KanbanStats } from "../components/kanban/kanban-types";
+
 export const adminApi = {
   // -- Auth --
   login(key: string): Promise<{ status: string }> {
@@ -992,5 +994,62 @@ export const adminApi = {
       method: "PUT",
       body: JSON.stringify(resources),
     });
+  },
+
+  // -- Kanban --
+  kanban: {
+    getBoard(agentId: number) {
+      return adminFetch<{ slug: string; name: string; description?: string }>(
+        `/agents/${agentId}/kanban/board`
+      );
+    },
+
+    getTask(agentId: number, taskId: string) {
+      return adminFetch<KanbanTask>(
+        `/agents/${agentId}/kanban/tasks/${taskId}`
+      );
+    },
+
+    createTask(
+      agentId: number,
+      data: { title: string; description?: string; priority?: number; labels?: string[] }
+    ) {
+      return adminFetch<KanbanTask>(`/agents/${agentId}/kanban/tasks`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+    },
+
+    updateTask(agentId: number, taskId: string, data: Partial<KanbanTask>) {
+      return adminFetch<KanbanTask>(
+        `/agents/${agentId}/kanban/tasks/${taskId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(data),
+        }
+      );
+    },
+
+    addComment(agentId: number, taskId: string, content: string) {
+      return adminFetch<KanbanComment>(
+        `/agents/${agentId}/kanban/tasks/${taskId}/comments`,
+        {
+          method: "POST",
+          body: JSON.stringify({ content }),
+        }
+      );
+    },
+
+    getStats(agentId: number) {
+      return adminFetch<KanbanStats>(
+        `/agents/${agentId}/kanban/stats`
+      );
+    },
+
+    dispatch(agentId: number) {
+      return adminFetch<void>(`/agents/${agentId}/kanban/dispatch`, {
+        method: "POST",
+      });
+    },
   },
 };

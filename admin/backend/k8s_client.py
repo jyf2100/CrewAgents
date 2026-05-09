@@ -16,6 +16,9 @@ K8S_API_TIMEOUT = 30
 
 
 class K8sClient:
+    # Default container for exec operations in multi-container pods
+    EXEC_CONTAINER = "gateway"
+
     def __init__(self, namespace: str = "hermes-agent"):
         self.namespace = namespace
         try:
@@ -312,6 +315,7 @@ class K8sClient:
                     name=pod_name,
                     namespace=self.namespace,
                     command=command,
+                    container=self.EXEC_CONTAINER,
                     stdin=False,
                     stdout=True,
                     stderr=True,
@@ -324,23 +328,28 @@ class K8sClient:
         except Exception as e:
             return "", str(e)
 
-    async def exec_pod(self, pod_name: str, command: list[str] | None = None):
+    async def exec_pod(self, pod_name: str, command: list[str] | None = None, container: str | None = None):
         """Create an interactive exec stream into a pod. Returns a kubernetes WSClient."""
         from kubernetes.stream import stream as k8s_stream
         if command is None:
             command = ["/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi"]
+        kwargs: dict = dict(
+            name=pod_name,
+            namespace=self.namespace,
+            command=command,
+            stdin=True,
+            stdout=True,
+            stderr=True,
+            tty=True,
+            _preload_content=False,
+        )
+        if container:
+            kwargs["container"] = container
         return await asyncio.wait_for(
             asyncio.to_thread(
                 k8s_stream,
                 self._stream_api.connect_get_namespaced_pod_exec,
-                name=pod_name,
-                namespace=self.namespace,
-                command=command,
-                stdin=True,
-                stdout=True,
-                stderr=True,
-                tty=True,
-                _preload_content=False,
+                **kwargs,
             ),
             timeout=K8S_API_TIMEOUT,
         )
@@ -359,6 +368,7 @@ class K8sClient:
                     name=pod_name,
                     namespace=self.namespace,
                     command=cmd,
+                    container=self.EXEC_CONTAINER,
                     stdin=False,
                     stdout=True,
                     stderr=False,
@@ -402,6 +412,7 @@ fi"""]
                     name=pod_name,
                     namespace=self.namespace,
                     command=cmd,
+                    container=self.EXEC_CONTAINER,
                     stdin=False,
                     stdout=True,
                     stderr=False,  # Discard stderr to prevent contamination
@@ -462,6 +473,7 @@ done""",
                     name=pod_name,
                     namespace=self.namespace,
                     command=cmd,
+                    container=self.EXEC_CONTAINER,
                     stdin=False,
                     stdout=True,
                     stderr=False,  # Discard stderr to prevent contamination
@@ -515,6 +527,7 @@ done""",
                     name=pod_name,
                     namespace=self.namespace,
                     command=cmd,
+                    container=self.EXEC_CONTAINER,
                     stdin=False,
                     stdout=True,
                     stderr=True,
@@ -544,6 +557,7 @@ done""",
                     name=pod_name,
                     namespace=self.namespace,
                     command=cmd,
+                    container=self.EXEC_CONTAINER,
                     stdin=False,
                     stdout=True,
                     stderr=True,

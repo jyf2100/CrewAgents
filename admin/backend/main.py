@@ -47,6 +47,7 @@ from weixin import stream_weixin_qr, start_qr_session, end_qr_session, read_weix
 from swarm_routes import router as swarm_router
 from terminal import router as terminal_router
 from file_browser import router as file_browser_router
+from kanban_routes import router as kanban_router
 from skill_scanner import scan_skills
 from user_routes import router as user_router
 from database import AsyncSessionLocal
@@ -101,6 +102,7 @@ app.state.admin_key = ADMIN_KEY
 app.include_router(swarm_router)
 app.include_router(terminal_router)
 app.include_router(file_browser_router)
+app.include_router(kanban_router)
 app.include_router(user_router)
 
 
@@ -112,7 +114,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ADMIN_CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "X-Admin-Key", "X-User-Token", "X-Email-Token", "X-Internal-Token"],
 )
 
@@ -292,6 +294,12 @@ async def _warn_no_auth():
         await init_db()
     except Exception as e:
         logger.warning("Database init skipped: %s", e)
+
+
+@app.on_event("shutdown")
+async def _shutdown_kanban():
+    from kanban_routes import close_dashboard_clients
+    await close_dashboard_clients()
 
 
 def _verify_sse_token(agent_id: int, token: str) -> bool:
