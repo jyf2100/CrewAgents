@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
-import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -30,10 +30,13 @@ from hermes_orchestrator.services.agent_selector import AgentSelector
 from hermes_orchestrator.services.health_monitor import HealthMonitor
 from hermes_orchestrator.services.task_executor import TaskExecutor
 from hermes_orchestrator.stores.redis_agent_registry import RedisAgentRegistry
+from hermes_orchestrator.stores.redis_circuit_store import RedisCircuitStore
 from hermes_orchestrator.stores.redis_task_store import RedisTaskStore
-from swarm.circuit_breaker import CircuitBreaker
+from hermes_orchestrator.services.leader_election import LeaderElection
 
 logger = logging.getLogger(__name__)
+
+RECOVERY_EPOCH_KEY = "hermes:orchestrator:recovery_epoch"
 
 config: OrchestratorConfig | None = None
 redis_client: _redis.Redis | None = None
@@ -43,19 +46,20 @@ selector: AgentSelector | None = None
 executor: TaskExecutor | None = None
 discovery: AgentDiscoveryService | None = None
 health_monitor: HealthMonitor | None = None
-circuits: dict[str, CircuitBreaker] = {}
+circuit_store: RedisCircuitStore | None = None
+leader_election: LeaderElection | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global config, redis_client, task_store, agent_registry, selector, executor
-    global discovery, health_monitor, circuits
+    global discovery, health_monitor, circuit_store, leader_election
 
     config = app.state.config
 
-    if config.database_url:
-        await db.init_pool(config.database_url)
-        config.database_url = ""
+    db_url = config.database_url
+    if db_url:
+        await db.init_pool(db_url)
     else:
         logger.info("DATABASE_URL not set — metadata will use K8s annotation fallback")
 
@@ -66,30 +70,50 @@ async def lifespan(app: FastAPI):
     executor = TaskExecutor(config)
     discovery = AgentDiscoveryService(config)
 
-    for a in agent_registry.list_agents():
-        circuits[a.agent_id] = CircuitBreaker(
-            failure_threshold=config.circuit_failure_threshold,
-            success_threshold=config.circuit_success_threshold,
-            recovery_timeout=config.circuit_recovery_timeout,
+    circuit_store = RedisCircuitStore(
+        redis_client,
+        failure_threshold=config.circuit_failure_threshold,
+        success_threshold=config.circuit_success_threshold,
+        recovery_timeout=config.circuit_recovery_timeout,
+        circuit_ttl=config.circuit_ttl,
+    )
+
+    identity = f"{config.pod_name}:{os.getpid()}"
+    leader_election = LeaderElection(redis_client, identity=identity, ttl=config.leader_ttl)
+
+    async def _on_become_leader():
+        epoch = f"r-{identity}-{leader_election.fencing_token}"
+        await _recover_in_flight_tasks(
+            task_store, agent_registry,
+            leader_election=leader_election, recovery_epoch=epoch,
         )
+        await leader_election.start_renew_loop()
 
-    _recover_in_flight_tasks(task_store, agent_registry)
+    if leader_election.try_acquire():
+        await _on_become_leader()
+    else:
+        await leader_election.start_acquire_loop(on_become_leader=_on_become_leader)
 
-    health_monitor = HealthMonitor(config, agent_registry, circuits)
+    health_monitor = HealthMonitor(config, agent_registry, circuit_store)
     health_task = asyncio.create_task(_run_health_monitor())
     worker_task = asyncio.create_task(_run_task_worker())
     discovery_task = asyncio.create_task(_run_discovery_loop())
 
-    logger.info("Orchestrator started")
+    logger.info("Orchestrator started (identity=%s)", identity)
     yield
 
     health_monitor.stop()
+    health_task.cancel()
+    discovery_task.cancel()
+    if leader_election:
+        if leader_election.is_leader:
+            await leader_election.step_down()
+        if leader_election._acquire_task:
+            leader_election._acquire_task.cancel()
     await db.close_pool()
     if discovery:
         await discovery.close()
-    health_task.cancel()
     worker_task.cancel()
-    discovery_task.cancel()
     redis_client.close()
     logger.info("Orchestrator shut down")
 
@@ -124,16 +148,52 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
-def _recover_in_flight_tasks(
-    store: RedisTaskStore, registry: RedisAgentRegistry
+async def _recover_in_flight_tasks(
+    store: RedisTaskStore,
+    registry: RedisAgentRegistry,
+    *,
+    leader_election: LeaderElection,
+    recovery_epoch: str,
 ) -> None:
-    """Recover tasks that were in-flight when the orchestrator crashed."""
-    in_flight = store.list_by_status(["assigned", "executing", "streaming"])
+    """Recover tasks that were in-flight when the orchestrator crashed.
+
+    Only runs on the leader. Uses recovery_epoch for idempotency.
+    Re-enqueues recovered tasks so workers pick them up.
+    """
+    loop = asyncio.get_event_loop()
+    # Idempotency: skip if this epoch was already processed
+    existing = await loop.run_in_executor(None, redis_client.get, RECOVERY_EPOCH_KEY)
+    if existing:
+        existing_str = existing if isinstance(existing, str) else existing.decode()
+        if existing_str == recovery_epoch:
+            logger.info("Recovery epoch %s already processed, skipping", recovery_epoch)
+            return
+
+    in_flight = await loop.run_in_executor(
+        None, lambda: store.list_by_status(["assigned", "executing", "streaming"])
+    )
+    recovered_count = 0
     for task in in_flight:
-        store.update(task.task_id, status="queued", assigned_agent=None)
-        logger.info(
-            "Recovered task %s → queued (was %s)", task.task_id, task.status
+        if not leader_election.is_leader:
+            logger.warning("Lost leadership during recovery, aborting")
+            return
+        await loop.run_in_executor(
+            None, lambda tid=task.task_id: store.update(tid, status="queued", assigned_agent=None)
         )
+        refreshed = await loop.run_in_executor(None, store.get, task.task_id)
+        if refreshed:
+            await loop.run_in_executor(None, store.enqueue, refreshed)
+        recovered_count += 1
+        logger.info(
+            "Recovered task %s -> queued (was %s, epoch=%s)",
+            task.task_id, task.status, recovery_epoch,
+        )
+    # Mark this epoch as processed (24h TTL)
+    await loop.run_in_executor(
+        None, lambda: redis_client.set(RECOVERY_EPOCH_KEY, recovery_epoch, ex=86400)
+    )
+    if recovered_count:
+        logger.info("Recovery complete: %d tasks recovered (epoch=%s)", recovered_count, recovery_epoch)
 
 
 # ---------------------------------------------------------------------------
@@ -263,11 +323,11 @@ async def agent_health(agent_id: str):
     agent = agent_registry.get(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    circuit = circuits.get(agent_id)
+    circuit_state, _, _, _ = circuit_store.check_state(agent_id)
     return AgentHealthResponse(
         agent_id=agent.agent_id,
         status=agent.status,
-        circuit_state=circuit.state.name.lower() if circuit else "closed",
+        circuit_state=circuit_state,
         current_load=agent.current_load,
         max_concurrent=agent.max_concurrent,
         last_health_check=agent.last_health_check,
@@ -279,7 +339,7 @@ async def agent_health(agent_id: str):
 # ---------------------------------------------------------------------------
 
 async def _run_task_worker():
-    consumer = f"worker-{secrets.token_hex(4)}"
+    consumer = f"worker-{config.pod_name}"
     loop = asyncio.get_event_loop()
     pending: set[asyncio.Task] = set()
     while True:
@@ -342,6 +402,8 @@ async def _process_task(task_id: str):
     if not task:
         return
     agents = await loop.run_in_executor(None, agent_registry.list_agents)
+    for a in agents:
+        a.circuit_state = circuit_store.check_state(a.agent_id)[0]
     chosen, routing_info = selector.select(agents, task)
     if routing_info:
         await loop.run_in_executor(
@@ -430,8 +492,7 @@ async def _process_task(task_id: str):
                 None, partial(task_store.update, task_id, status="done", result=result)
             )
             # Record success so circuit breaker can recover
-            if chosen.agent_id in circuits:
-                circuits[chosen.agent_id].record_success()
+            circuit_store.record_success(chosen.agent_id)
         else:
             await loop.run_in_executor(
                 None,
@@ -442,14 +503,7 @@ async def _process_task(task_id: str):
                     error=run_result.error or "Run failed",
                 ),
             )
-            circuits.setdefault(
-                chosen.agent_id,
-                CircuitBreaker(
-                    failure_threshold=config.circuit_failure_threshold,
-                    success_threshold=config.circuit_success_threshold,
-                    recovery_timeout=config.circuit_recovery_timeout,
-                ),
-            ).record_failure()
+            circuit_store.record_failure(chosen.agent_id)
     except Exception as e:
         current = await loop.run_in_executor(None, task_store.get, task_id)
         if current and current.retry_count < current.max_retries:
@@ -479,23 +533,9 @@ async def _process_task(task_id: str):
             await loop.run_in_executor(
                 None, partial(task_store.update, task_id, status="failed", error=str(e))
             )
-        circuits.setdefault(
-            chosen.agent_id,
-            CircuitBreaker(
-                failure_threshold=config.circuit_failure_threshold,
-                success_threshold=config.circuit_success_threshold,
-                recovery_timeout=config.circuit_recovery_timeout,
-            ),
-        ).record_failure()
+        circuit_store.record_failure(chosen.agent_id)
     finally:
-        updated = await loop.run_in_executor(None, agent_registry.get, chosen.agent_id)
-        if updated:
-            await loop.run_in_executor(
-                None,
-                agent_registry.update_load,
-                chosen.agent_id,
-                max(0, updated.current_load - 1),
-            )
+        await loop.run_in_executor(None, agent_registry.atomic_decrement_load, chosen.agent_id)
 
     task = await loop.run_in_executor(None, task_store.get, task_id)
     if task and task.callback_url:
@@ -537,6 +577,9 @@ async def _send_callback(task: Task):
         await asyncio.sleep(2**attempt)
 
 
+MISSES_KEY = "hermes:orchestrator:discovery:misses"
+
+
 async def _run_discovery_loop():
     loop = asyncio.get_event_loop()
     while True:
@@ -546,17 +589,32 @@ async def _run_discovery_loop():
             existing = {a.agent_id for a in existing_agents}
             discovered = {p.agent_id for p in profiles}
             for p in profiles:
-                is_new = p.agent_id not in existing
                 await loop.run_in_executor(None, agent_registry.register, p)
-                if is_new:
-                    circuits[p.agent_id] = CircuitBreaker(
-                        failure_threshold=config.circuit_failure_threshold,
-                        success_threshold=config.circuit_success_threshold,
-                        recovery_timeout=config.circuit_recovery_timeout,
-                    )
+                # Reset miss count on successful discovery
+                await loop.run_in_executor(
+                    None, lambda aid=p.agent_id: redis_client.hdel(MISSES_KEY, aid)
+                )
             for gone in existing - discovered:
-                await loop.run_in_executor(None, agent_registry.deregister, gone)
-                circuits.pop(gone, None)
+                miss_count = await loop.run_in_executor(
+                    None, lambda g=gone: redis_client.hincrby(MISSES_KEY, g, 1)
+                )
+                if miss_count >= config.discovery_miss_threshold:
+                    await loop.run_in_executor(None, agent_registry.deregister, gone)
+                    await loop.run_in_executor(
+                        None, lambda g=gone: redis_client.hdel(MISSES_KEY, g)
+                    )
+                    await loop.run_in_executor(
+                        None, lambda g=gone: circuit_store.delete(g)
+                    )
+                    logger.info(
+                        "Deregistered agent %s after %d consecutive misses",
+                        gone, miss_count,
+                    )
+                else:
+                    logger.debug(
+                        "Agent %s miss %d/%d, keeping",
+                        gone, miss_count, config.discovery_miss_threshold,
+                    )
         except asyncio.CancelledError:
             raise
         except Exception as e:

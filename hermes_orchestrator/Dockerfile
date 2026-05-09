@@ -1,5 +1,7 @@
 FROM python:3.11-slim
 
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
 WORKDIR /app
 
 # Install build deps
@@ -11,7 +13,7 @@ COPY hermes_orchestrator/ hermes_orchestrator/
 COPY swarm/ swarm/
 
 # Install with orchestrator extras
-RUN pip install --no-cache-dir -e ".[orchestrator]"
+RUN pip install --no-cache-dir -i ${PIP_INDEX_URL} -e ".[orchestrator]"
 
 EXPOSE 8080
 

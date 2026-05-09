@@ -1,16 +1,14 @@
 from __future__ import annotations
 import asyncio
 import logging
-import time
 from typing import TYPE_CHECKING
 
 import aiohttp
 
-from swarm.circuit_breaker import CircuitBreaker, CircuitState
-
 if TYPE_CHECKING:
     from hermes_orchestrator.config import OrchestratorConfig
     from hermes_orchestrator.stores.redis_agent_registry import RedisAgentRegistry
+    from hermes_orchestrator.stores.redis_circuit_store import RedisCircuitStore
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +45,11 @@ class HealthMonitor:
         self,
         config: OrchestratorConfig,
         registry: RedisAgentRegistry,
-        circuits: dict[str, CircuitBreaker],
+        circuit_store: RedisCircuitStore,
     ):
         self._config = config
         self._registry = registry
-        self._circuits = circuits
+        self._circuit_store = circuit_store
         self._adaptive = AdaptiveHealthChecker()
         self._running = False
 
@@ -67,22 +65,23 @@ class HealthMonitor:
                     healthy = await self._check_health(agent.gateway_url)
                 except Exception:
                     healthy = False
-                interval = self._adaptive.next_interval(agent.agent_id, healthy)
-                circuit = self._circuits.get(agent.agent_id)
-                if circuit:
-                    if healthy:
-                        circuit.record_success()
-                    else:
-                        circuit.record_failure()
-                        if circuit.state == CircuitState.OPEN:
-                            await asyncio.get_event_loop().run_in_executor(
-                                None, self._registry.update_status, agent.agent_id, "degraded"
-                            )
-                            logger.warning("Agent %s circuit OPEN — marking degraded", agent.agent_id)
+                self._adaptive.next_interval(agent.agent_id, healthy)
                 if healthy:
-                    await asyncio.get_event_loop().run_in_executor(
+                    state, _, _ = await loop.run_in_executor(
+                        None, self._circuit_store.record_success, agent.agent_id
+                    )
+                    await loop.run_in_executor(
                         None, self._registry.update_status, agent.agent_id, "online"
                     )
+                else:
+                    state, _ = await loop.run_in_executor(
+                        None, self._circuit_store.record_failure, agent.agent_id
+                    )
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, self._registry.update_status, agent.agent_id, "degraded"
+                    )
+                    if state == "open":
+                        logger.warning("Agent %s circuit OPEN — marking degraded", agent.agent_id)
             await asyncio.sleep(self._adaptive.min_current_interval())
 
     def stop(self):
@@ -97,4 +96,5 @@ class HealthMonitor:
                 ) as resp:
                     return resp.status == 200
         except Exception:
+            logger.debug("Health check failed for %s", gateway_url, exc_info=True)
             return False
